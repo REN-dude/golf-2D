@@ -1,33 +1,43 @@
-import Checklist from './Checklist'
-import PopTip from './PopTip'
+import React from 'react'
+import Checklist, { ChecklistItem } from './Checklist'
 
 type Props = {
   strokes: number
-  check: { fairway: boolean; rough: boolean; sand: boolean; water: boolean; green: boolean; ob: boolean; putt: boolean }
-  lastTip: { type: string; payload?: any } | null
-  debug: boolean
-  onToggleDebug: () => void
+  par: number
+  holeIndex: number
+  totalHoles: number
+  checklist: ChecklistItem[]
+  onResetHole: () => void
+  onNextHole: () => void
+  puttMode: boolean
+  lastTip: string | null
 }
 
-export default function HUD({ strokes, check, lastTip, debug, onToggleDebug }: Props) {
+export default function HUD({ strokes, par, holeIndex, totalHoles, checklist, onResetHole, onNextHole, puttMode, lastTip }: Props) {
   return (
     <div className="hud">
-      <div className="card">
-        <div className="row">
-          <h4>CHECKLIST</h4>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span className="muted">DEBUG</span>
-            <input className="toggle" type="checkbox" checked={debug} onChange={onToggleDebug} />
-          </label>
+      <div className="hud-inner">
+        <div className="panel stack">
+          <div className="row">
+            <strong>Hole {holeIndex + 1}/{totalHoles}</strong>
+            <span className="spacer" />
+            <span>Par {par}</span>
+          </div>
+          <div className="row">
+            <span>Strokes: <strong>{strokes}</strong></span>
+            <span className="spacer" />
+            <span>{puttMode ? 'Putt Mode' : 'Full Shot'}</span>
+          </div>
+          <Checklist items={checklist} />
+          <div className="row">
+            <button className="btn" onClick={onResetHole}>Reset Hole</button>
+            <span className="spacer" />
+            <button className="btn primary" onClick={onNextHole}>Next Hole</button>
+          </div>
         </div>
-        <Checklist items={check} />
-        <div className="row" style={{ marginTop: 6 }}>
-          <span className="muted">STROKES</span>
-          <strong>{strokes}</strong>
-        </div>
+        <div />
       </div>
-
-      {lastTip && <PopTip text={`${lastTip.type}${lastTip.payload ? `: ${lastTip.payload}` : ''}`} />}
+      {lastTip ? <div className="poptip">{lastTip}</div> : null}
     </div>
   )
 }

@@ -1,13 +1,23 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
-export default function PopTip({ text }: { text: string }) {
-  const [show, setShow] = useState(true)
+type Props = {
+  message: string | null
+  durationMs?: number
+  onDone?: () => void
+}
+
+export default function PopTip({ message, durationMs = 1800, onDone }: Props) {
+  const [visible, setVisible] = useState(false)
   useEffect(() => {
-    setShow(true)
-    const t = setTimeout(() => setShow(false), 2000)
+    if (!message) return
+    setVisible(true)
+    const t = setTimeout(() => {
+      setVisible(false)
+      onDone?.()
+    }, durationMs)
     return () => clearTimeout(t)
-  }, [text])
-  if (!show) return null
-  return <div className="poptip">{text}</div>
+  }, [message, durationMs, onDone])
+  if (!message || !visible) return null
+  return <div className="poptip">{message}</div>
 }
 

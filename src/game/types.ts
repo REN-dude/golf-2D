@@ -1,10 +1,14 @@
+export type Lie = 'tee' | 'fairway' | 'rough' | 'sand' | 'water' | 'green'
+
 export type Vec2 = { x: number; y: number }
 
-export type ColliderType = 'wall' | 'sand' | 'water' | 'rough' | 'green' | 'fairway' | 'ob'
+export type ColliderType = 'wall' | 'sand' | 'water' | 'rough'
+
+export type Polygon = { points: Vec2[] }
 
 export type Collider = {
-  type: Exclude<ColliderType, 'ob'>
-  shape: { points: Vec2[] }
+  type: ColliderType
+  shape: Polygon
 }
 
 export type Hole = {
@@ -19,4 +23,11 @@ export type Course = {
   name: string
   holes: Hole[]
 }
+
+export type GameEvent =
+  | { type: 'shot'; strokes: number }
+  | { type: 'entered'; lie: Exclude<Lie, 'tee'> }
+  | { type: 'puttMode'; on: boolean }
+  | { type: 'penalty'; amount: number; reason: 'water' | 'ob' }
+  | { type: 'hole'; result: 'out' }
 
