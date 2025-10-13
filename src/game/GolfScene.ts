@@ -58,16 +58,23 @@ export class GolfScene extends Phaser.Scene {
 
     // Draw simple course visuals
     const g = this.add.graphics()
-    g.fillStyle(0x2e7d32, 1)
+    g.fillStyle(0x275f2e, 1)
     g.fillRect(0, 0, 800, 450)
 
-    // green visualization (draw before hazards so hazards overlay correctly)
-    g.fillStyle(0x66bb6a, 1)
-    g.fillCircle(this.hole.cupPos.x, this.hole.cupPos.y, 60)
+    // rough (below hazards/green)
+    for (const col of this.hole.colliders.filter((c) => c.type === 'rough')) {
+      g.fillStyle(0x2e7d32, 1)
+      g.beginPath()
+      const first = col.shape.points[0]
+      g.moveTo(first.x, first.y)
+      for (let i = 1; i < col.shape.points.length; i++) g.lineTo(col.shape.points[i].x, col.shape.points[i].y)
+      g.closePath()
+      g.fillPath()
+    }
 
-    // rough/sand/water visualizations
-    for (const col of this.hole.colliders) {
-      const color = col.type === 'rough' ? 0x275f2e : col.type === 'sand' ? 0xe3d7a4 : 0x3fa7f2
+    // hazards (sand, water) above fairway/rough
+    for (const col of this.hole.colliders.filter((c) => c.type === 'sand' || c.type === 'water')) {
+      const color = col.type === 'sand' ? 0xe3d7a4 : 0x3fa7f2
       g.fillStyle(color, 1)
       g.beginPath()
       const first = col.shape.points[0]
@@ -76,6 +83,12 @@ export class GolfScene extends Phaser.Scene {
       g.closePath()
       g.fillPath()
     }
+
+    // green (putt-mode area) on top
+    g.fillStyle(0xa5d6a7, 1)
+    g.fillCircle(this.hole.cupPos.x, this.hole.cupPos.y, 60)
+    g.lineStyle(2, 0x66bb6a, 1)
+    g.strokeCircle(this.hole.cupPos.x, this.hole.cupPos.y, 60)
 
     // cup
     this.add.circle(this.hole.cupPos.x, this.hole.cupPos.y, 8, 0x004d40)
@@ -109,8 +122,24 @@ export class GolfScene extends Phaser.Scene {
       const dx = this.dragStart.x - end.x
       const dy = this.dragStart.y - end.y
       const body = this.ball.body as Phaser.Physics.Arcade.Body
-      // Set velocity 1:1 with drag vector
-      body.setVelocity(dx, dy)
+
+      // Compute drag speed (pixels/second) and set ball speed:
+      // - putt mode: 1:1 (drag speed -> ball speed)
+      // - normal:   1:10
+      const dist = Math.hypot(dx, dy)
+      const dtMs = (p.upTime ?? this.time.now) - (p.downTime ?? this.time.now)
+      const dtSec = dtMs > 0 ? dtMs / 1000 : 0
+      const dragSpeed = dtSec > 0 ? dist / dtSec : dist // fallback if dt not available
+      const scale = this.puttMode ? 1 : 10
+      const ballSpeed = dragSpeed * scale
+      if (dist > 0 && ballSpeed > 0) {
+        const ux = dx / dist
+        const uy = dy / dist
+        body.setVelocity(ux * ballSpeed, uy * ballSpeed)
+      } else {
+        body.setVelocity(0, 0)
+      }
+
       this.isDragging = false
       this.dragStart = undefined
       this.strokes += 1
