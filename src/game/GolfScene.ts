@@ -121,11 +121,12 @@ export class GolfScene extends Phaser.Scene {
     this.landingMarker.setStrokeStyle(2, 0x78d381, 1)
     this.landingMarker.setVisible(false)
 
-    // Input drag-aim
+    // Input drag-aim (start from anywhere on screen)
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      const dist = Phaser.Math.Distance.Between(p.x, p.y, this.ball.x, this.ball.y)
-      if (dist < 24 && this.ball.body && (this.ball.body as Phaser.Physics.Arcade.Body).speed < 10) {
+      const body = this.ball.body as Phaser.Physics.Arcade.Body
+      if (body && body.speed < 10) {
         this.isDragging = true
+        // Use pointer-down as the drag start (not the ball position)
         this.dragStart = { x: p.x, y: p.y }
       }
     })
