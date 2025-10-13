@@ -1,6 +1,18 @@
 import Phaser from 'phaser'
 import type { Course, GameEvent, Hole, Lie, Vec2 } from './types'
 
+// Simple club definitions for power + air drag + roll tuning
+type ClubKey = '1w' | '5u' | '7i' | 'PW' | 'SW'
+type ClubSpec = { label: string; power: number; airDrag: number; rollMult: number }
+const CLUBS: Record<ClubKey, ClubSpec> = {
+  // Higher power, more air drag, long roll
+  '1w': { label: '1W', power: 1.3, airDrag: 0.006, rollMult: 1.25 },
+  '5u': { label: '5U', power: 1.1, airDrag: 0.005, rollMult: 1.15 },
+  '7i': { label: '7I', power: 1.0, airDrag: 0.005, rollMult: 1.00 },
+  'PW': { label: 'PW', power: 0.75, airDrag: 0.004, rollMult: 0.85 },
+  'SW': { label: 'SW', power: 0.6, airDrag: 0.004, rollMult: 0.75 },
+}
+
 type InitData = {
   course: Course
   holeIndex: number
@@ -33,6 +45,9 @@ export class GolfScene extends Phaser.Scene {
   isDragging = false
   dragStart?: Vec2
   puttMode = false
+  currentClubKey: ClubKey = '7i'
+  clubText?: Phaser.GameObjects.Text
+  lastShotClub?: ClubSpec
   hasEntered: Record<Exclude<Lie, 'tee'>, boolean> = {
     fairway: false,
     rough: false,
@@ -112,6 +127,15 @@ export class GolfScene extends Phaser.Scene {
     this.placeTrees()
     this.drawTrees()
 
+    // Club HUD and keyboard shortcuts
+    this.clubText = this.add.text(12, 8, `Club: ${CLUBS[this.currentClubKey].label}`,
+      { color: '#ffffff', fontSize: '14px' })
+    this.input.keyboard?.on('keydown', (ev: KeyboardEvent) => {
+      const map: Record<string, ClubKey | undefined> = { '1': '1w', '2': '5u', '3': '7i', '4': 'PW', '5': 'SW' }
+      const k = map[ev.key]
+      if (k) this.setClub(k)
+    })
+
     // Aim preview graphics
     this.aimGraphics = this.add.graphics()
     this.aimGraphics.setDepth(1000)
@@ -132,7 +156,9 @@ export class GolfScene extends Phaser.Scene {
       // Predict with same mapping as shot: velocity = 3x drag vector
       const dx = this.dragStart.x - p.x
       const dy = this.dragStart.y - p.y
-      this.updateAimPreview({ x: this.ball.x, y: this.ball.y }, { x: dx * 3, y: dy * 3 })
+      const club = CLUBS[this.currentClubKey]
+      const scale = 3 * club.power
+      this.updateAimPreview({ x: this.ball.x, y: this.ball.y }, { x: dx * scale, y: dy * scale }, club)
     })
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
       if (!this.isDragging || !this.dragStart) return
@@ -140,8 +166,11 @@ export class GolfScene extends Phaser.Scene {
       const dx = this.dragStart.x - end.x
       const dy = this.dragStart.y - end.y
       const body = this.ball.body as Phaser.Physics.Arcade.Body
-      // Set velocity 3x of drag vector
-      body.setVelocity(dx * 3, dy * 3)
+      // Set velocity scaled by selected club
+      const club = CLUBS[this.currentClubKey]
+      const scale = 3 * club.power
+      body.setVelocity(dx * scale, dy * scale)
+      this.lastShotClub = club
       this.isDragging = false
       this.dragStart = undefined
       // Clear aim preview
@@ -152,9 +181,15 @@ export class GolfScene extends Phaser.Scene {
     })
   }
 
+  private setClub(key: ClubKey) {
+    if (this.currentClubKey === key) return
+    this.currentClubKey = key
+    if (this.clubText) this.clubText.setText(`Club: ${CLUBS[this.currentClubKey].label}`)
+  }
+
   // Simulate trajectory with lie-based friction, tree collisions, OB/cup detection
-  private updateAimPreview(start: Vec2, v0: Vec2) {
-    const sim = this.simulateTrajectory(start, v0)
+  private updateAimPreview(start: Vec2, v0: Vec2, club: ClubSpec) {
+    const sim = this.simulateTrajectory(start, v0, club)
     this.drawDotted(sim.points)
     if (sim.points.length > 0) {
       const last = sim.points[sim.points.length - 1]
@@ -175,7 +210,7 @@ export class GolfScene extends Phaser.Scene {
     }
   }
 
-  private simulateTrajectory(start: Vec2, v0: Vec2): { points: Vec2[]; outcome: 'fairway' | 'rough' | 'sand' | 'water' | 'green' | 'ob' | 'cup' } {
+  private simulateTrajectory(start: Vec2, v0: Vec2, club: ClubSpec): { points: Vec2[]; outcome: 'fairway' | 'rough' | 'sand' | 'water' | 'green' | 'ob' | 'cup' } {
     const points: Vec2[] = []
     let px = start.x
     let py = start.y
@@ -231,12 +266,19 @@ export class GolfScene extends Phaser.Scene {
         }
       }
 
-      // Apply lie-based friction (mirrors applyLieFriction)
+      // Air drag (club), then lie-based friction adjusted by club roll multiplier
+      // Air drag reduces speed in flight regardless of lie
+      const air = Math.max(0, Math.min(0.02, club.airDrag))
+      vx *= 1 - air
+      vy *= 1 - air
       const lie = this.determineLie({ x: px, y: py })
       let factor = 0.985 // fairway base
       if (lie === 'rough') factor = 0.96
       if (lie === 'sand') factor = 0.92
       if (lie === 'green') factor = 0.98
+      const rollMult = Math.max(0.5, Math.min(1.5, club.rollMult || 1))
+      // Less decel for larger rollMult: factor' = 1 - (1 - factor)/rollMult
+      factor = 1 - (1 - factor) / rollMult
       vx *= factor
       vy *= factor
 
@@ -329,6 +371,11 @@ export class GolfScene extends Phaser.Scene {
     if (lie === 'rough') factor = 0.96
     if (lie === 'sand') factor = 0.92
     if (lie === 'green') factor = 0.98
+    // Adjust by selected club's roll multiplier (more roll -> less decel)
+    if (this.lastShotClub) {
+      const rollMult = Math.max(0.5, Math.min(1.5, this.lastShotClub.rollMult || 1))
+      factor = 1 - (1 - factor) / rollMult
+    }
     v.scale(factor)
     body.setVelocity(v.x, v.y)
   }
@@ -408,6 +455,12 @@ export class GolfScene extends Phaser.Scene {
     // If ball comes to rest in water, apply penalty and drop
     if (inWater && body.speed < 2) this.handleWater()
     if (body.speed < 12 && !inWater) this.lastSafePos = { x: this.ball.x, y: this.ball.y }
+
+    // Apply club-specific air drag continuously while moving
+    if (this.lastShotClub && body.speed > 2) {
+      const air = Math.max(0, Math.min(0.02, this.lastShotClub.airDrag))
+      if (air > 0) body.setVelocity(body.velocity.x * (1 - air), body.velocity.y * (1 - air))
+    }
 
     // Tree collision handling
     // If ball intersects a tree: fast -> decelerate and push out; slow -> stop (drop in place)
