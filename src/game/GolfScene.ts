@@ -44,6 +44,13 @@ export class GolfScene extends Phaser.Scene {
   // Simple circular trees for obstacles
   trees: { x: number; y: number; r: number }[] = []
 
+  // Aim preview (dotted path + landing marker)
+  aimGraphics!: Phaser.GameObjects.Graphics
+  landingMarker!: Phaser.GameObjects.Arc
+
+  private worldW = 800
+  private worldH = 450
+
   constructor() { super(GolfScene.KEY) }
 
   init(data: InitData) {
@@ -56,17 +63,20 @@ export class GolfScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#1a3a27')
 
-    this.physics.world.setBounds(0, 0, 800, 450, true, true, true, true)
+    // derive world size from scale (config width/height)
+    this.worldW = this.scale.width as number
+    this.worldH = this.scale.height as number
+    this.physics.world.setBounds(0, 0, this.worldW, this.worldH, true, true, true, true)
     this.physics.world.setBoundsCollision(false, false, false, false)
 
     // Draw simple course visuals
     const g = this.add.graphics()
     g.fillStyle(0x2e7d32, 1)
-    g.fillRect(0, 0, 800, 450)
+    g.fillRect(0, 0, this.worldW, this.worldH)
 
     // green visualization (draw before hazards so hazards overlay correctly)
     g.fillStyle(0x66bb6a, 1)
-    g.fillCircle(this.hole.cupPos.x, this.hole.cupPos.y, 60)
+    g.fillCircle(this.hole.cupPos.x, this.hole.cupPos.y, 70)
 
     // rough/sand/water visualizations
     for (const col of this.hole.colliders) {
@@ -102,6 +112,13 @@ export class GolfScene extends Phaser.Scene {
     this.placeTrees()
     this.drawTrees()
 
+    // Aim preview graphics
+    this.aimGraphics = this.add.graphics()
+    this.aimGraphics.setDepth(1000)
+    this.landingMarker = this.add.circle(0, 0, 6, 0xffffff, 0.9)
+    this.landingMarker.setStrokeStyle(2, 0x78d381, 1)
+    this.landingMarker.setVisible(false)
+
     // Input drag-aim
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       const dist = Phaser.Math.Distance.Between(p.x, p.y, this.ball.x, this.ball.y)
@@ -109,6 +126,13 @@ export class GolfScene extends Phaser.Scene {
         this.isDragging = true
         this.dragStart = { x: p.x, y: p.y }
       }
+    })
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (!this.isDragging || !this.dragStart) return
+      // Predict with same mapping as shot: velocity = 3x drag vector
+      const dx = this.dragStart.x - p.x
+      const dy = this.dragStart.y - p.y
+      this.updateAimPreview({ x: this.ball.x, y: this.ball.y }, { x: dx * 3, y: dy * 3 })
     })
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
       if (!this.isDragging || !this.dragStart) return
@@ -120,9 +144,137 @@ export class GolfScene extends Phaser.Scene {
       body.setVelocity(dx * 3, dy * 3)
       this.isDragging = false
       this.dragStart = undefined
+      // Clear aim preview
+      this.aimGraphics.clear()
+      this.landingMarker.setVisible(false)
       this.strokes += 1
       this.emit({ type: 'shot', strokes: this.strokes })
     })
+  }
+
+  // Simulate trajectory with lie-based friction, tree collisions, OB/cup detection
+  private updateAimPreview(start: Vec2, v0: Vec2) {
+    const sim = this.simulateTrajectory(start, v0)
+    this.drawDotted(sim.points)
+    if (sim.points.length > 0) {
+      const last = sim.points[sim.points.length - 1]
+      this.landingMarker.setPosition(last.x, last.y)
+      // Color by outcome
+      const color =
+        sim.outcome === 'ob' ? 0xf64f59 :
+        sim.outcome === 'water' ? 0x3fa7f2 :
+        sim.outcome === 'sand' ? 0xf6c859 :
+        sim.outcome === 'rough' ? 0x78d381 :
+        sim.outcome === 'green' ? 0x66bb6a :
+        sim.outcome === 'cup' ? 0x00ff99 : 0xffffff
+      this.landingMarker.setFillStyle(0xffffff, 0.9)
+      this.landingMarker.setStrokeStyle(2, color, 1)
+      this.landingMarker.setVisible(true)
+    } else {
+      this.landingMarker.setVisible(false)
+    }
+  }
+
+  private simulateTrajectory(start: Vec2, v0: Vec2): { points: Vec2[]; outcome: 'fairway' | 'rough' | 'sand' | 'water' | 'green' | 'ob' | 'cup' } {
+    const points: Vec2[] = []
+    let px = start.x
+    let py = start.y
+    let vx = v0.x
+    let vy = v0.y
+    const dt = 1 / 60
+    const maxSteps = 1200
+    const stopSpeed = 2
+
+    // helpers
+    const cupR = 9
+    const cup = this.hole.cupPos
+
+    for (let i = 0; i < maxSteps; i++) {
+      // integrate
+      px += vx * dt
+      py += vy * dt
+
+      // OB detection
+      if (px < 0 || px > this.worldW || py < 0 || py > this.worldH) {
+        return { points, outcome: 'ob' }
+      }
+
+      // cup detection (use current speed before friction)
+      const speedBefore = Math.hypot(vx, vy)
+      const dCup = Phaser.Math.Distance.Between(px, py, cup.x, cup.y)
+      if (dCup < cupR && speedBefore < 30) {
+        points.push({ x: cup.x, y: cup.y })
+        return { points, outcome: 'cup' }
+      }
+
+      // tree collisions (approximate same as update)
+      for (const t of this.trees) {
+        const d = Phaser.Math.Distance.Between(px, py, t.x, t.y)
+        const minD = t.r + 5
+        if (d < minD) {
+          const nx = (px - t.x) / (d || 1)
+          const ny = (py - t.y) / (d || 1)
+          const push = minD - d + 0.5
+          px = t.x + nx * (d + push)
+          py = t.y + ny * (d + push)
+          const vlen = Math.hypot(vx, vy)
+          if (vlen > 40) {
+            vx *= 0.4
+            vy *= 0.4
+          } else {
+            // stop on low-speed hit
+            points.push({ x: px, y: py })
+            const lie = this.determineLie({ x: px, y: py })
+            return { points, outcome: lie }
+          }
+          break
+        }
+      }
+
+      // Apply lie-based friction (mirrors applyLieFriction)
+      const lie = this.determineLie({ x: px, y: py })
+      let factor = 0.985 // fairway base
+      if (lie === 'rough') factor = 0.96
+      if (lie === 'sand') factor = 0.92
+      if (lie === 'green') factor = 0.98
+      vx *= factor
+      vy *= factor
+
+      // collect dotted path sparsely
+      if (i % 6 === 0) points.push({ x: px, y: py })
+
+      const speed = Math.hypot(vx, vy)
+      if (speed < stopSpeed) {
+        const endLie = this.determineLie({ x: px, y: py })
+        return { points, outcome: endLie }
+      }
+    }
+    // Fallback outcome
+    const endLie = this.determineLie({ x: px, y: py })
+    return { points, outcome: endLie }
+  }
+
+  private determineLie(p: Vec2): Lie {
+    // hazards
+    const inWater = this.hole.colliders.some((c) => c.type === 'water' && polyContains(c.shape.points, p))
+    if (inWater) return 'water'
+    const inSand = this.hole.colliders.some((c) => c.type === 'sand' && polyContains(c.shape.points, p))
+    if (inSand) return 'sand'
+    const inRough = this.hole.colliders.some((c) => c.type === 'rough' && polyContains(c.shape.points, p))
+    if (inRough) return 'rough'
+    const inGreen = Phaser.Math.Distance.Between(p.x, p.y, this.hole.cupPos.x, this.hole.cupPos.y) < 60
+    if (inGreen) return 'green'
+    return 'fairway'
+  }
+
+  private drawDotted(points: Vec2[]) {
+    const g = this.aimGraphics
+    g.clear()
+    const dotRadius = 2
+    g.fillStyle(0xffffff, 0.9)
+    for (const p of points) {
+      g.fillCircle(p.x, p.y, dotRadius)
+    }
   }
 
   private placeTrees() {
@@ -131,8 +283,8 @@ export class GolfScene extends Phaser.Scene {
     while (this.trees.length < 3 && attempts < 500) {
       attempts++
       const r = Phaser.Math.Between(10, 16)
-      const x = Phaser.Math.Between(30 + r, 800 - 30 - r)
-      const y = Phaser.Math.Between(30 + r, 450 - 30 - r)
+      const x = Phaser.Math.Between(30 + r, this.worldW - 30 - r)
+      const y = Phaser.Math.Between(30 + r, this.worldH - 30 - r)
       const p = { x, y }
       // Avoid near tee or cup
       const farFromTee = Phaser.Math.Distance.Between(x, y, this.hole.teePos.x, this.hole.teePos.y) > 80
@@ -232,8 +384,8 @@ export class GolfScene extends Phaser.Scene {
   }
 
   private checkOB() {
-    // OB if ball leaves world rectangle [0,800]x[0,450]
-    if (this.ball.x < 0 || this.ball.x > 800 || this.ball.y < 0 || this.ball.y > 450) {
+    // OB if ball leaves world rectangle
+    if (this.ball.x < 0 || this.ball.x > this.worldW || this.ball.y < 0 || this.ball.y > this.worldH) {
       this.emit({ type: 'penalty', amount: 1, reason: 'ob' })
       this.resetBallTo(this.lastSafePos)
     }

@@ -24,11 +24,10 @@ body {
 
 .game-shell {
   position: relative;
-  width: 800px;
-  height: 450px;
+  width: 1280px;
+  height: 720px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.4);
   border-radius: 8px;
   overflow: hidden;
   background: #1a3a27;
 }
-

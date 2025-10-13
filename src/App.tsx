@@ -85,8 +85,8 @@ export default function App() {
     if (!hostRef.current) return
     const config: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
-      width: 800,
-      height: 450,
+      width: 1280,
+      height: 720,
       parent: hostRef.current,
       physics: { default: 'arcade', arcade: { gravity: { x: 0, y: 0 }, debug: false } },
       scene: [GolfScene],
