@@ -71,16 +71,18 @@ export class GolfScene extends Phaser.Scene {
 
     // Draw simple course visuals
     const g = this.add.graphics()
-    g.fillStyle(0x2e7d32, 1)
+    // Base terrain as rough (darker)
+    g.fillStyle(0x275f2e, 1)
     g.fillRect(0, 0, this.worldW, this.worldH)
 
     // green visualization (draw before hazards so hazards overlay correctly)
     g.fillStyle(0x66bb6a, 1)
     g.fillCircle(this.hole.cupPos.x, this.hole.cupPos.y, 70)
 
-    // rough/sand/water visualizations
+    // fairway/sand/water visualizations
     for (const col of this.hole.colliders) {
-      const color = col.type === 'rough' ? 0x275f2e : col.type === 'sand' ? 0xe3d7a4 : 0x3fa7f2
+      // Treat 'rough' polygons as fairway areas (inner = fairway)
+      const color = col.type === 'rough' ? 0x66bb6a : col.type === 'sand' ? 0xe3d7a4 : 0x3fa7f2
       g.fillStyle(color, 1)
       g.beginPath()
       const first = col.shape.points[0]
@@ -254,17 +256,17 @@ export class GolfScene extends Phaser.Scene {
     return { points, outcome: endLie }
   }
 
-  private determineLie(p: Vec2): Lie {
+  private determineLie(p: Vec2): Exclude<Lie, 'tee'> {
     // hazards
     const inWater = this.hole.colliders.some((c) => c.type === 'water' && polyContains(c.shape.points, p))
     if (inWater) return 'water'
     const inSand = this.hole.colliders.some((c) => c.type === 'sand' && polyContains(c.shape.points, p))
     if (inSand) return 'sand'
-    const inRough = this.hole.colliders.some((c) => c.type === 'rough' && polyContains(c.shape.points, p))
-    if (inRough) return 'rough'
+    // Invert: inside 'rough' polygon is actually fairway; outside becomes rough
+    const inFairwayZone = this.hole.colliders.some((c) => c.type === 'rough' && polyContains(c.shape.points, p))
     const inGreen = Phaser.Math.Distance.Between(p.x, p.y, this.hole.cupPos.x, this.hole.cupPos.y) < 60
     if (inGreen) return 'green'
-    return 'fairway'
+    return inFairwayZone ? 'fairway' : 'rough'
   }
 
   private drawDotted(points: Vec2[]) {
@@ -337,7 +339,7 @@ export class GolfScene extends Phaser.Scene {
     const p = { x: this.ball.x, y: this.ball.y }
     const inWater = this.hole.colliders.some((c) => c.type === 'water' && polyContains(c.shape.points, p))
     const inSand = this.hole.colliders.some((c) => c.type === 'sand' && polyContains(c.shape.points, p))
-    const inRough = this.hole.colliders.some((c) => c.type === 'rough' && polyContains(c.shape.points, p))
+    const inFairwayZone = this.hole.colliders.some((c) => c.type === 'rough' && polyContains(c.shape.points, p))
 
     // green defined as circle around cup
     const inGreen = Phaser.Math.Distance.Between(p.x, p.y, this.hole.cupPos.x, this.hole.cupPos.y) < 60
@@ -347,7 +349,8 @@ export class GolfScene extends Phaser.Scene {
     const entries: { key: Exclude<Lie, 'tee'>; now: boolean }[] = [
       { key: 'water', now: inWater },
       { key: 'sand', now: inSand },
-      { key: 'rough', now: inRough },
+      // Rough is outside fairway and not in hazards/green
+      { key: 'rough', now: !inFairwayZone && !inSand && !inWater && !inGreen },
       { key: 'green', now: inGreen },
     ]
     for (const e of entries) {
@@ -361,9 +364,9 @@ export class GolfScene extends Phaser.Scene {
     // Allow crossing water: no immediate penalty here.
     // Penalize only if the ball stops while in water (handled in update()).
     if (inSand) this.applyLieFriction('sand')
-    else if (inRough) this.applyLieFriction('rough')
     else if (inGreen) this.applyLieFriction('green')
-    else this.applyLieFriction('fairway')
+    else if (inFairwayZone) this.applyLieFriction('fairway')
+    else this.applyLieFriction('rough')
   }
 
   private handleWater() {
