@@ -1,0 +1,292 @@
+import Phaser from 'phaser'
+import type { Course, GameEvent, Hole, Lie, Vec2 } from './types'
+
+type InitData = {
+  course: Course
+  holeIndex: number
+  onEvent?: (ev: GameEvent) => void
+}
+
+function polyContains(points: Vec2[], p: Vec2): boolean {
+  // ray casting
+  let inside = false
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const xi = points[i].x, yi = points[i].y
+    const xj = points[j].x, yj = points[j].y
+    const intersect = yi > p.y !== yj > p.y && p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+export class GolfScene extends Phaser.Scene {
+  static KEY = 'GolfScene'
+
+  course!: Course
+  hole!: Hole
+  holeIndex = 0
+  onEvent?: (ev: GameEvent) => void
+
+  ball!: Phaser.GameObjects.Arc
+  strokes = 0
+  lastSafePos!: Vec2
+  isDragging = false
+  dragStart?: Vec2
+  puttMode = false
+  hasEntered: Record<Exclude<Lie, 'tee'>, boolean> = {
+    fairway: false,
+    rough: false,
+    sand: false,
+    water: false,
+    green: false,
+  }
+
+  // Simple circular trees for obstacles
+  trees: { x: number; y: number; r: number }[] = []
+
+  constructor() { super(GolfScene.KEY) }
+
+  init(data: InitData) {
+    this.course = data.course
+    this.holeIndex = data.holeIndex ?? 0
+    this.hole = this.course.holes[this.holeIndex]
+    this.onEvent = data.onEvent
+  }
+
+  create() {
+    this.cameras.main.setBackgroundColor('#1a3a27')
+
+    this.physics.world.setBounds(0, 0, 800, 450, true, true, true, true)
+    this.physics.world.setBoundsCollision(false, false, false, false)
+
+    // Draw simple course visuals
+    const g = this.add.graphics()
+    g.fillStyle(0x2e7d32, 1)
+    g.fillRect(0, 0, 800, 450)
+
+    // green visualization (draw before hazards so hazards overlay correctly)
+    g.fillStyle(0x66bb6a, 1)
+    g.fillCircle(this.hole.cupPos.x, this.hole.cupPos.y, 60)
+
+    // rough/sand/water visualizations
+    for (const col of this.hole.colliders) {
+      const color = col.type === 'rough' ? 0x275f2e : col.type === 'sand' ? 0xe3d7a4 : 0x3fa7f2
+      g.fillStyle(color, 1)
+      g.beginPath()
+      const first = col.shape.points[0]
+      g.moveTo(first.x, first.y)
+      for (let i = 1; i < col.shape.points.length; i++) g.lineTo(col.shape.points[i].x, col.shape.points[i].y)
+      g.closePath()
+      g.fillPath()
+    }
+
+    // cup
+    this.add.circle(this.hole.cupPos.x, this.hole.cupPos.y, 8, 0x004d40)
+    this.add.circle(this.hole.cupPos.x, this.hole.cupPos.y, 4, 0x00251f)
+
+    // tee marker
+    this.add.circle(this.hole.teePos.x, this.hole.teePos.y, 6, 0xffffff)
+
+    // ball (drawn as circle, with arcade body attached)
+    this.ball = this.add.circle(this.hole.teePos.x, this.hole.teePos.y, 5, 0xffffff)
+    this.physics.add.existing(this.ball)
+    const body = this.ball.body as Phaser.Physics.Arcade.Body
+    body.setAllowGravity(false)
+    body.setDrag(15, 15)
+    body.setBounce(0.2, 0.2)
+    body.setCollideWorldBounds(false)
+
+    this.lastSafePos = { ...this.hole.teePos }
+
+    // Randomly place 3 trees (avoid tee, cup, and water)
+    this.placeTrees()
+    this.drawTrees()
+
+    // Input drag-aim
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      const dist = Phaser.Math.Distance.Between(p.x, p.y, this.ball.x, this.ball.y)
+      if (dist < 24 && this.ball.body && (this.ball.body as Phaser.Physics.Arcade.Body).speed < 10) {
+        this.isDragging = true
+        this.dragStart = { x: p.x, y: p.y }
+      }
+    })
+    this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
+      if (!this.isDragging || !this.dragStart) return
+      const end = { x: p.x, y: p.y }
+      const dx = this.dragStart.x - end.x
+      const dy = this.dragStart.y - end.y
+      const body = this.ball.body as Phaser.Physics.Arcade.Body
+      // Set velocity 3x of drag vector
+      body.setVelocity(dx * 3, dy * 3)
+      this.isDragging = false
+      this.dragStart = undefined
+      this.strokes += 1
+      this.emit({ type: 'shot', strokes: this.strokes })
+    })
+  }
+
+  private placeTrees() {
+    this.trees = []
+    let attempts = 0
+    while (this.trees.length < 3 && attempts < 500) {
+      attempts++
+      const r = Phaser.Math.Between(10, 16)
+      const x = Phaser.Math.Between(30 + r, 800 - 30 - r)
+      const y = Phaser.Math.Between(30 + r, 450 - 30 - r)
+      const p = { x, y }
+      // Avoid near tee or cup
+      const farFromTee = Phaser.Math.Distance.Between(x, y, this.hole.teePos.x, this.hole.teePos.y) > 80
+      const farFromCup = Phaser.Math.Distance.Between(x, y, this.hole.cupPos.x, this.hole.cupPos.y) > 90
+      // Avoid water polygons
+      const inWater = this.hole.colliders.some((c) => c.type === 'water' && polyContains(c.shape.points, p))
+      // Avoid overlapping existing trees
+      const noOverlap = this.trees.every((t) => Phaser.Math.Distance.Between(x, y, t.x, t.y) > t.r + r + 12)
+      if (farFromTee && farFromCup && !inWater && noOverlap) this.trees.push({ x, y, r })
+    }
+  }
+
+  private drawTrees() {
+    const g = this.add.graphics()
+    for (const t of this.trees) {
+      // trunk
+      g.fillStyle(0x6b4f2a, 1)
+      g.fillCircle(t.x, t.y + Math.max(2, Math.floor(t.r * 0.2)), Math.max(3, Math.floor(t.r * 0.35)))
+      // canopy
+      g.fillStyle(0x2e7d32, 1)
+      g.fillCircle(t.x, t.y, t.r)
+    }
+  }
+
+  private emit(ev: GameEvent) {
+    this.onEvent?.(ev)
+  }
+
+  private setPuttMode(on: boolean) {
+    if (this.puttMode === on) return
+    this.puttMode = on
+    this.emit({ type: 'puttMode', on })
+  }
+
+  private applyLieFriction(lie: Lie) {
+    const body = this.ball.body as Phaser.Physics.Arcade.Body
+    if (!body) return
+    const v = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y)
+    const speed = v.length()
+    if (speed < 2) return
+    let factor = 0.985 // fairway base
+    if (lie === 'rough') factor = 0.96
+    if (lie === 'sand') factor = 0.92
+    if (lie === 'green') factor = 0.98
+    v.scale(factor)
+    body.setVelocity(v.x, v.y)
+  }
+
+  private checkZones() {
+    const p = { x: this.ball.x, y: this.ball.y }
+    const inWater = this.hole.colliders.some((c) => c.type === 'water' && polyContains(c.shape.points, p))
+    const inSand = this.hole.colliders.some((c) => c.type === 'sand' && polyContains(c.shape.points, p))
+    const inRough = this.hole.colliders.some((c) => c.type === 'rough' && polyContains(c.shape.points, p))
+
+    // green defined as circle around cup
+    const inGreen = Phaser.Math.Distance.Between(p.x, p.y, this.hole.cupPos.x, this.hole.cupPos.y) < 60
+    this.setPuttMode(inGreen)
+
+    // Mark first entries
+    const entries: { key: Exclude<Lie, 'tee'>; now: boolean }[] = [
+      { key: 'water', now: inWater },
+      { key: 'sand', now: inSand },
+      { key: 'rough', now: inRough },
+      { key: 'green', now: inGreen },
+    ]
+    for (const e of entries) {
+      if (e.now && !this.hasEntered[e.key]) {
+        this.hasEntered[e.key] = true
+        this.emit({ type: 'entered', lie: e.key })
+      }
+    }
+
+    // Update friction according to lie each frame
+    // Allow crossing water: no immediate penalty here.
+    // Penalize only if the ball stops while in water (handled in update()).
+    if (inSand) this.applyLieFriction('sand')
+    else if (inRough) this.applyLieFriction('rough')
+    else if (inGreen) this.applyLieFriction('green')
+    else this.applyLieFriction('fairway')
+  }
+
+  private handleWater() {
+    const body = this.ball.body as Phaser.Physics.Arcade.Body
+    if (body.speed > 20) {
+      // absorb quickly
+      body.setVelocity(body.velocity.x * 0.8, body.velocity.y * 0.8)
+    }
+    // penalty + drop at last safe
+    this.emit({ type: 'penalty', amount: 1, reason: 'water' })
+    this.resetBallTo(this.lastSafePos)
+  }
+
+  private resetBallTo(p: Vec2) {
+    this.ball.setPosition(p.x, p.y)
+    const body = this.ball.body as Phaser.Physics.Arcade.Body
+    body.setVelocity(0, 0)
+  }
+
+  private checkOB() {
+    // OB if ball leaves world rectangle [0,800]x[0,450]
+    if (this.ball.x < 0 || this.ball.x > 800 || this.ball.y < 0 || this.ball.y > 450) {
+      this.emit({ type: 'penalty', amount: 1, reason: 'ob' })
+      this.resetBallTo(this.lastSafePos)
+    }
+  }
+
+  private checkCup() {
+    const body = this.ball.body as Phaser.Physics.Arcade.Body
+    const d = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, this.hole.cupPos.x, this.hole.cupPos.y)
+    if (d < 9 && body.speed < 30) {
+      this.resetBallTo(this.hole.cupPos)
+      this.emit({ type: 'hole', result: 'out' })
+    }
+  }
+
+  update() {
+    const body = this.ball.body as Phaser.Physics.Arcade.Body
+    // Update last safe pos when ball is slow and not in hazard
+    const p = { x: this.ball.x, y: this.ball.y }
+    const inWater = this.hole.colliders.some((c) => c.type === 'water' && polyContains(c.shape.points, p))
+    // If ball comes to rest in water, apply penalty and drop
+    if (inWater && body.speed < 2) this.handleWater()
+    if (body.speed < 12 && !inWater) this.lastSafePos = { x: this.ball.x, y: this.ball.y }
+
+    // Tree collision handling
+    // If ball intersects a tree: fast -> decelerate and push out; slow -> stop (drop in place)
+    for (const t of this.trees) {
+      const d = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, t.x, t.y)
+      const minD = t.r + 5 // tree radius + ball radius
+      if (d < minD) {
+        const v = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y)
+        const speed = v.length()
+        // Direction from tree center to ball to push it out
+        const nx = (this.ball.x - t.x) / (d || 1)
+        const ny = (this.ball.y - t.y) / (d || 1)
+        const push = minD - d + 0.5
+        this.ball.setPosition(t.x + nx * (d + push), t.y + ny * (d + push))
+        if (speed > 40) {
+          // Significant hit: reduce speed
+          v.scale(0.4)
+          body.setVelocity(v.x, v.y)
+        } else {
+          // Low speed: drop in place
+          body.setVelocity(0, 0)
+        }
+        // Only handle one tree per frame
+        break
+      }
+    }
+
+    this.checkZones()
+    this.checkOB()
+    this.checkCup()
+  }
+}
+
+export default GolfScene

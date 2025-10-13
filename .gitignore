@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+
+# production
+dist/
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+pnpm-lock.yaml
+yarn.lock
+
+# editor/IDE
+.idea/
+.vscode/
+*.swp
+

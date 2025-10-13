@@ -1,0 +1,56 @@
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.hud-inner {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 8px;
+  pointer-events: none;
+}
+.panel {
+  background: var(--hud-bg);
+  color: var(--hud-fg);
+  border-radius: 8px;
+  padding: 8px 10px;
+  pointer-events: auto;
+}
+.stack { display: flex; flex-direction: column; gap: 6px; }
+.row { display: flex; align-items: center; gap: 8px; }
+.spacer { flex: 1; }
+.btn {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: #2b2b2b;
+  color: #f2f2f2;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.btn.primary { background: var(--accent); color: #042; }
+.btn.warn { background: var(--warn); color: #3a2a00; }
+.btn.danger { background: var(--danger); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+
+.checklist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,0.06);
+  padding: 6px 8px; border-radius: 999px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #888; }
+.dot.ok { background: var(--accent); }
+.dot.bad { background: var(--danger); }
+
+.poptip {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 10px;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  padding: 8px 12px; border-radius: 999px;
+  font-size: 14px;
+  pointer-events: none;
+}
+
