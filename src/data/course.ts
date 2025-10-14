@@ -4,6 +4,12 @@ import { buildVariableWidthBand, ellipsePolygon, jitterPolygon, offsetPolygon, s
 const WORLD_W = 1280
 const WORLD_H = 720
 
+// Global scale for fairway width (1.0 = current width)
+//フェアウェイの広さを変えられる
+const FAIRWAY_SCALE =1.5
+// Scale for rough outline thickness; defaults to follow fairway scale
+const ROUGH_OUTLINE_SCALE = FAIRWAY_SCALE
+
 // Simple seeded RNG for reproducible random shapes
 function mulberry32(seed: number) {
   let t = seed >>> 0
@@ -67,9 +73,9 @@ const hole1: Hole = (() => {
     cup,
   ]
   const center = sampleCatmullRom(ctrls, 14)
-  const fairway = buildVariableWidthBand(center, { wStart: 52, wMid: 86, wEnd: 46 })
+  const fairway = buildVariableWidthBand(center, { wStart: 52 * FAIRWAY_SCALE, wMid: 86 * FAIRWAY_SCALE, wEnd: 46 * FAIRWAY_SCALE })
   // Outer rough outline as offset + jitter (visual only)
-  const roughOutline = jitterPolygon(offsetPolygon(fairway, 22), 6, 777)
+  const roughOutline = jitterPolygon(offsetPolygon(fairway, 22 * ROUGH_OUTLINE_SCALE), 6, 777)
   // Green as rotated ellipse at cup
   const greenPoly = ellipsePolygon(cup.x, cup.y, 80, 55, 56, Math.PI * 0.15)
   return {
@@ -99,8 +105,8 @@ const hole2: Hole = (() => {
     cup,
   ]
   const center = sampleCatmullRom(ctrls, 12)
-  const fairway = buildVariableWidthBand(center, { wStart: 48, wMid: 74, wEnd: 40 })
-  const roughOutline = jitterPolygon(offsetPolygon(fairway, 18), 5, 888)
+  const fairway = buildVariableWidthBand(center, { wStart: 48 * FAIRWAY_SCALE, wMid: 74 * FAIRWAY_SCALE, wEnd: 40 * FAIRWAY_SCALE })
+  const roughOutline = jitterPolygon(offsetPolygon(fairway, 18 * ROUGH_OUTLINE_SCALE), 5, 888)
   const greenPoly = ellipsePolygon(cup.x, cup.y, 70, 48, 52, Math.PI * -0.2)
   return {
     par: 3,
@@ -127,8 +133,8 @@ const hole3: Hole = (() => {
     cup,
   ]
   const center = sampleCatmullRom(ctrls, 14)
-  const fairway = buildVariableWidthBand(center, { wStart: 58, wMid: 96, wEnd: 52 })
-  const roughOutline = jitterPolygon(offsetPolygon(fairway, 26), 7, 999)
+  const fairway = buildVariableWidthBand(center, { wStart: 58 * FAIRWAY_SCALE, wMid: 96 * FAIRWAY_SCALE, wEnd: 52 * FAIRWAY_SCALE })
+  const roughOutline = jitterPolygon(offsetPolygon(fairway, 26 * ROUGH_OUTLINE_SCALE), 7, 999)
   const greenPoly = ellipsePolygon(cup.x, cup.y, 85, 58, 60, Math.PI * 0.05)
   return {
     par: 5,
@@ -149,4 +155,3 @@ export const course: Course = {
   name: 'Wide Random • 3H',
   holes: [hole1, hole2, hole3],
 }
-
