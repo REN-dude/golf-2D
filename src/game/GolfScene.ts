@@ -1,17 +1,6 @@
 import Phaser from 'phaser'
 import type { Course, GameEvent, Hole, Lie, Vec2 } from './types'
-
-// Simple club definitions for power + air drag + roll tuning
-type ClubKey = '1w' | '5u' | '7i' | 'PW' | 'SW'
-type ClubSpec = { label: string; power: number; airDrag: number; rollMult: number }
-const CLUBS: Record<ClubKey, ClubSpec> = {
-  // Higher power, more air drag, long roll
-  '1w': { label: '1W', power: 1.3, airDrag: 0.006, rollMult: 1.25 },
-  '5u': { label: '5U', power: 1.1, airDrag: 0.005, rollMult: 1.15 },
-  '7i': { label: '7I', power: 1.0, airDrag: 0.005, rollMult: 1.00 },
-  'PW': { label: 'PW', power: 0.75, airDrag: 0.004, rollMult: 0.85 },
-  'SW': { label: 'SW', power: 0.6, airDrag: 0.004, rollMult: 0.75 },
-}
+import { CLUBS, CLUB_ORDER, type ClubKey, type ClubSpec, LIE_MOD } from './clubs'
 
 type InitData = {
   course: Course
@@ -47,6 +36,7 @@ export class GolfScene extends Phaser.Scene {
   puttMode = false
   currentClubKey: ClubKey = '7i'
   clubText?: Phaser.GameObjects.Text
+  clubButtons: Phaser.GameObjects.Text[] = []
   lastShotClub?: ClubSpec
   hasEntered: Record<Exclude<Lie, 'tee'>, boolean> = {
     fairway: false,
@@ -129,13 +119,31 @@ export class GolfScene extends Phaser.Scene {
     this.placeTrees()
     this.drawTrees()
 
-    // Club HUD and keyboard shortcuts
+    // Club HUD: clickable labels + keyboard shortcuts (1-5)
     this.clubText = this.add.text(12, 8, `Club: ${CLUBS[this.currentClubKey].label}`,
       { color: '#ffffff', fontSize: '14px' })
+    // Buttons
+    const startX = 12
+    let x = startX
+    const y = 28
+    const gap = 16
+    this.clubButtons = []
+    for (let i = 0; i < CLUB_ORDER.length; i++) {
+      const key = CLUB_ORDER[i]
+      const btn = this.add.text(x, y, `${i + 1}:${CLUBS[key].label}`, {
+        color: '#ffffff',
+        fontSize: '14px',
+      }).setInteractive({ useHandCursor: true })
+      btn.on('pointerdown', () => this.setClub(key))
+      this.clubButtons.push(btn)
+      x += btn.width + gap
+    }
+    this.refreshClubButtons()
     this.input.keyboard?.on('keydown', (ev: KeyboardEvent) => {
-      const map: Record<string, ClubKey | undefined> = { '1': '1w', '2': '5u', '3': '7i', '4': 'PW', '5': 'SW' }
-      const k = map[ev.key]
-      if (k) this.setClub(k)
+      const idx = parseInt(ev.key, 10)
+      if (!Number.isNaN(idx) && idx >= 1 && idx <= CLUB_ORDER.length) {
+        this.setClub(CLUB_ORDER[idx - 1])
+      }
     })
 
     // Aim preview graphics
@@ -160,7 +168,7 @@ export class GolfScene extends Phaser.Scene {
       const dx = this.dragStart.x - p.x
       const dy = this.dragStart.y - p.y
       const club = CLUBS[this.currentClubKey]
-      const scale = 3 * club.power
+      const scale = 3 * club.maxPower
       this.updateAimPreview({ x: this.ball.x, y: this.ball.y }, { x: dx * scale, y: dy * scale }, club)
     })
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
@@ -171,7 +179,7 @@ export class GolfScene extends Phaser.Scene {
       const body = this.ball.body as Phaser.Physics.Arcade.Body
       // Set velocity scaled by selected club
       const club = CLUBS[this.currentClubKey]
-      const scale = 3 * club.power
+      const scale = 3 * club.maxPower
       body.setVelocity(dx * scale, dy * scale)
       this.lastShotClub = club
       this.isDragging = false
@@ -188,16 +196,62 @@ export class GolfScene extends Phaser.Scene {
     if (this.currentClubKey === key) return
     this.currentClubKey = key
     if (this.clubText) this.clubText.setText(`Club: ${CLUBS[this.currentClubKey].label}`)
+    this.refreshClubButtons()
+  }
+
+  private refreshClubButtons() {
+    for (let i = 0; i < this.clubButtons.length; i++) {
+      const btn = this.clubButtons[i]
+      const key = CLUB_ORDER[i]
+      const selected = key === this.currentClubKey
+      btn.setColor(selected ? '#ffeb3b' : '#ffffff')
+    }
   }
 
   // Simulate trajectory with lie-based friction, tree collisions, OB/cup detection
   private updateAimPreview(start: Vec2, v0: Vec2, club: ClubSpec) {
+    // Sim total, then show only carry portion based on club + lie modifiers and spin.
     const sim = this.simulateTrajectory(start, v0, club)
-    this.drawDotted(sim.points)
-    if (sim.points.length > 0) {
-      const last = sim.points[sim.points.length - 1]
+    const pts = sim.points
+    // total path length
+    let totalLen = 0
+    for (let i = 1; i < pts.length; i++) totalLen += Phaser.Math.Distance.Between(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y)
+
+    // Determine lie at start for modifiers
+    const startLie = this.determineLie(start)
+    const lieMod = LIE_MOD[startLie]
+    const carryMod = lieMod?.carry ?? 1
+    const runMod = lieMod?.run ?? 1
+    const spinReduce = 1 - 0.5 * Phaser.Math.Clamp(club.spin, 0, 1)
+    const carryCoeffEff = club.carryCoeff * carryMod
+    const runCoeffEff = club.runCoeff * runMod * spinReduce
+    const frac = (carryCoeffEff) / Math.max(0.0001, carryCoeffEff + runCoeffEff)
+    const carryTargetLen = totalLen * Phaser.Math.Clamp(frac, 0.05, 0.95)
+
+    // Clip points to carry length only
+    const carryPts: Vec2[] = []
+    let acc = 0
+    for (let i = 0; i < pts.length; i++) {
+      if (i === 0) { carryPts.push(pts[i]); continue }
+      const d = Phaser.Math.Distance.Between(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y)
+      if (acc + d >= carryTargetLen) {
+        // interpolate last point to land exactly on carry length
+        const t = (carryTargetLen - acc) / d
+        const x = Phaser.Math.Linear(pts[i - 1].x, pts[i].x, t)
+        const y = Phaser.Math.Linear(pts[i - 1].y, pts[i].y, t)
+        carryPts.push({ x, y })
+        break
+      } else {
+        carryPts.push(pts[i])
+        acc += d
+      }
+    }
+
+    this.drawDotted(carryPts)
+    if (carryPts.length > 0) {
+      const last = carryPts[carryPts.length - 1]
       this.landingMarker.setPosition(last.x, last.y)
-      // Color by outcome
+      // Color by outcome of carry landing area
       const color =
         sim.outcome === 'ob' ? 0xf64f59 :
         sim.outcome === 'water' ? 0x3fa7f2 :
@@ -269,9 +323,9 @@ export class GolfScene extends Phaser.Scene {
         }
       }
 
-      // Air drag (club), then lie-based friction adjusted by club roll multiplier
+      // Air drag (derived from club params), then lie-based friction
       // Air drag reduces speed in flight regardless of lie
-      const air = Math.max(0, Math.min(0.02, club.airDrag))
+      const air = Phaser.Math.Clamp(0.004 + 0.004 * (club.launchAngleDeg / 52) - 0.002 * club.spin, 0, 0.02)
       vx *= 1 - air
       vy *= 1 - air
       const lie = this.determineLie({ x: px, y: py })
@@ -279,9 +333,9 @@ export class GolfScene extends Phaser.Scene {
       if (lie === 'rough') factor = 0.96
       if (lie === 'sand') factor = 0.92
       if (lie === 'green') factor = 0.98
-      const rollMult = Math.max(0.5, Math.min(1.5, club.rollMult || 1))
-      // Less decel for larger rollMult: factor' = 1 - (1 - factor)/rollMult
-      factor = 1 - (1 - factor) / rollMult
+      // Apply spin influence: higher spin -> more decel (less roll)
+      const spin = Phaser.Math.Clamp(club.spin, 0, 1)
+      factor = factor - (1 - factor) * (0.5 * spin)
       vx *= factor
       vy *= factor
 
@@ -374,10 +428,10 @@ export class GolfScene extends Phaser.Scene {
     if (lie === 'rough') factor = 0.96
     if (lie === 'sand') factor = 0.92
     if (lie === 'green') factor = 0.98
-    // Adjust by selected club's roll multiplier (more roll -> less decel)
+    // Adjust by selected club's spin (higher -> more decel/less roll)
     if (this.lastShotClub) {
-      const rollMult = Math.max(0.5, Math.min(1.5, this.lastShotClub.rollMult || 1))
-      factor = 1 - (1 - factor) / rollMult
+      const spin = Phaser.Math.Clamp(this.lastShotClub.spin, 0, 1)
+      factor = factor - (1 - factor) * (0.5 * spin)
     }
     v.scale(factor)
     body.setVelocity(v.x, v.y)
@@ -460,9 +514,10 @@ export class GolfScene extends Phaser.Scene {
     if (inWater && body.speed < 2) this.handleWater()
     if (body.speed < 12 && !inWater) this.lastSafePos = { x: this.ball.x, y: this.ball.y }
 
-    // Apply club-specific air drag continuously while moving
+    // Apply club-specific air drag continuously while moving (derived)
     if (this.lastShotClub && body.speed > 2) {
-      const air = Math.max(0, Math.min(0.02, this.lastShotClub.airDrag))
+      const c = this.lastShotClub
+      const air = Phaser.Math.Clamp(0.004 + 0.004 * (c.launchAngleDeg / 52) - 0.002 * c.spin, 0, 0.02)
       if (air > 0) body.setVelocity(body.velocity.x * (1 - air), body.velocity.y * (1 - air))
     }
 
