@@ -1,4 +1,5 @@
 import type { Course, Hole, Vec2 } from '../game/types'
+import { buildVariableWidthBand, ellipsePolygon, jitterPolygon, offsetPolygon, sampleCatmullRom } from '../game/geometry'
 
 const WORLD_W = 1280
 const WORLD_H = 720
@@ -53,46 +54,99 @@ function blob(
   return pts
 }
 
-// Build three holes with wide world and curved random shapes
-const hole1: Hole = {
-  par: 4,
-  teePos: { x: 120, y: WORLD_H - 120 },
-  cupPos: { x: WORLD_W - 180, y: 160 },
-  colliders: [
-    // Large rough area as a curved blob covering most of the world
-    { type: 'rough', shape: { points: blob(WORLD_W / 2, WORLD_H / 2, Math.min(WORLD_W, WORLD_H) * 0.46, { seed: 101, variation: 0.18, segments: 56, smoothPasses: 3, aspectX: 1.2, aspectY: 0.9 }) } },
-    // Sand bunker
-    { type: 'sand', shape: { points: blob(WORLD_W * 0.55, WORLD_H * 0.65, 90, { seed: 102, variation: 0.28, segments: 36, smoothPasses: 2 }) } },
-    // Water hazard
-    { type: 'water', shape: { points: blob(WORLD_W * 0.35, WORLD_H * 0.33, 110, { seed: 103, variation: 0.32, segments: 40, smoothPasses: 3, aspectX: 1.3, aspectY: 0.8 }) } },
-  ],
-}
+// Build holes using a centerline spline → variable-width fairway; hazards as noisy blobs; green as ellipse polygon.
+const hole1: Hole = (() => {
+  const tee = { x: 120, y: WORLD_H - 120 }
+  const cup = { x: WORLD_W - 180, y: 160 }
+  // Centerline control points (entrance → mid → end)
+  const ctrls: Vec2[] = [
+    tee,
+    { x: WORLD_W * 0.35, y: WORLD_H * 0.78 },
+    { x: WORLD_W * 0.58, y: WORLD_H * 0.52 },
+    { x: WORLD_W * 0.76, y: WORLD_H * 0.32 },
+    cup,
+  ]
+  const center = sampleCatmullRom(ctrls, 14)
+  const fairway = buildVariableWidthBand(center, { wStart: 52, wMid: 86, wEnd: 46 })
+  // Outer rough outline as offset + jitter (visual only)
+  const roughOutline = jitterPolygon(offsetPolygon(fairway, 22), 6, 777)
+  // Green as rotated ellipse at cup
+  const greenPoly = ellipsePolygon(cup.x, cup.y, 80, 55, 56, Math.PI * 0.15)
+  return {
+    par: 4,
+    teePos: tee,
+    cupPos: cup,
+    colliders: [
+      // Fairway polygon (stored under 'rough' for compatibility: inside => fairway)
+      { type: 'rough', shape: { points: fairway } },
+      // Rough outline kept as 'wall' (not used for lie; can be used for visuals)
+      { type: 'wall', shape: { points: roughOutline } },
+      { type: 'green', shape: { points: greenPoly } },
+      { type: 'sand', shape: { points: blob(WORLD_W * 0.55, WORLD_H * 0.65, 90, { seed: 102, variation: 0.28, segments: 36, smoothPasses: 2 }) } },
+      { type: 'water', shape: { points: blob(WORLD_W * 0.35, WORLD_H * 0.33, 110, { seed: 103, variation: 0.32, segments: 40, smoothPasses: 3, aspectX: 1.3, aspectY: 0.8 }) } },
+    ],
+  }
+})()
 
-const hole2: Hole = {
-  par: 3,
-  teePos: { x: 160, y: 180 },
-  cupPos: { x: WORLD_W - 200, y: WORLD_H - 200 },
-  colliders: [
-    { type: 'rough', shape: { points: blob(WORLD_W / 2, WORLD_H / 2, Math.min(WORLD_W, WORLD_H) * 0.44, { seed: 201, variation: 0.2, segments: 60, smoothPasses: 3, aspectX: 1.1, aspectY: 1 }) } },
-    { type: 'sand', shape: { points: blob(WORLD_W * 0.62, WORLD_H * 0.45, 120, { seed: 202, variation: 0.25, segments: 38, smoothPasses: 2 }) } },
-    { type: 'water', shape: { points: blob(WORLD_W * 0.28, WORLD_H * 0.58, 130, { seed: 203, variation: 0.35, segments: 42, smoothPasses: 3, aspectX: 0.9, aspectY: 1.2 }) } },
-  ],
-}
+const hole2: Hole = (() => {
+  const tee = { x: 160, y: 180 }
+  const cup = { x: WORLD_W - 200, y: WORLD_H - 200 }
+  const ctrls: Vec2[] = [
+    tee,
+    { x: WORLD_W * 0.34, y: WORLD_H * 0.26 },
+    { x: WORLD_W * 0.58, y: WORLD_H * 0.44 },
+    { x: WORLD_W * 0.76, y: WORLD_H * 0.62 },
+    cup,
+  ]
+  const center = sampleCatmullRom(ctrls, 12)
+  const fairway = buildVariableWidthBand(center, { wStart: 48, wMid: 74, wEnd: 40 })
+  const roughOutline = jitterPolygon(offsetPolygon(fairway, 18), 5, 888)
+  const greenPoly = ellipsePolygon(cup.x, cup.y, 70, 48, 52, Math.PI * -0.2)
+  return {
+    par: 3,
+    teePos: tee,
+    cupPos: cup,
+    colliders: [
+      { type: 'rough', shape: { points: fairway } },
+      { type: 'wall', shape: { points: roughOutline } },
+      { type: 'green', shape: { points: greenPoly } },
+      { type: 'sand', shape: { points: blob(WORLD_W * 0.62, WORLD_H * 0.45, 120, { seed: 202, variation: 0.25, segments: 38, smoothPasses: 2 }) } },
+      { type: 'water', shape: { points: blob(WORLD_W * 0.28, WORLD_H * 0.58, 130, { seed: 203, variation: 0.35, segments: 42, smoothPasses: 3, aspectX: 0.9, aspectY: 1.2 }) } },
+    ],
+  }
+})()
 
-const hole3: Hole = {
-  par: 5,
-  teePos: { x: 120, y: WORLD_H / 2 },
-  cupPos: { x: WORLD_W - 140, y: WORLD_H / 2 },
-  colliders: [
-    { type: 'rough', shape: { points: blob(WORLD_W / 2, WORLD_H / 2, Math.min(WORLD_W, WORLD_H) * 0.47, { seed: 301, variation: 0.22, segments: 64, smoothPasses: 3, aspectX: 1.25, aspectY: 0.95 }) } },
-    { type: 'sand', shape: { points: blob(WORLD_W * 0.48, WORLD_H * 0.22, 100, { seed: 302, variation: 0.27, segments: 36, smoothPasses: 2 }) } },
-    { type: 'water', shape: { points: blob(WORLD_W * 0.42, WORLD_H * 0.75, 150, { seed: 303, variation: 0.33, segments: 44, smoothPasses: 3, aspectX: 1.1, aspectY: 0.9 }) } },
-  ],
-}
+const hole3: Hole = (() => {
+  const tee = { x: 120, y: WORLD_H / 2 }
+  const cup = { x: WORLD_W - 140, y: WORLD_H / 2 }
+  const ctrls: Vec2[] = [
+    tee,
+    { x: WORLD_W * 0.28, y: WORLD_H * 0.36 },
+    { x: WORLD_W * 0.48, y: WORLD_H * 0.58 },
+    { x: WORLD_W * 0.70, y: WORLD_H * 0.50 },
+    cup,
+  ]
+  const center = sampleCatmullRom(ctrls, 14)
+  const fairway = buildVariableWidthBand(center, { wStart: 58, wMid: 96, wEnd: 52 })
+  const roughOutline = jitterPolygon(offsetPolygon(fairway, 26), 7, 999)
+  const greenPoly = ellipsePolygon(cup.x, cup.y, 85, 58, 60, Math.PI * 0.05)
+  return {
+    par: 5,
+    teePos: tee,
+    cupPos: cup,
+    colliders: [
+      { type: 'rough', shape: { points: fairway } },
+      { type: 'wall', shape: { points: roughOutline } },
+      { type: 'green', shape: { points: greenPoly } },
+      { type: 'sand', shape: { points: blob(WORLD_W * 0.48, WORLD_H * 0.22, 100, { seed: 302, variation: 0.27, segments: 36, smoothPasses: 2 }) } },
+      { type: 'water', shape: { points: blob(WORLD_W * 0.42, WORLD_H * 0.75, 150, { seed: 303, variation: 0.33, segments: 44, smoothPasses: 3, aspectX: 1.1, aspectY: 0.9 }) } },
+    ],
+  }
+})()
 
 export const course: Course = {
   id: 'course-wide-random-1',
-  name: 'ワイド・ランダムE3H',
+  name: 'Wide Random • 3H',
   holes: [hole1, hole2, hole3],
 }
 

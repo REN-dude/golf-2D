@@ -80,21 +80,37 @@ export class GolfScene extends Phaser.Scene {
     g.fillStyle(0x275f2e, 1)
     g.fillRect(0, 0, this.worldW, this.worldH)
 
-    // green visualization (draw before hazards so hazards overlay correctly)
-    g.fillStyle(0x66bb6a, 1)
-    g.fillCircle(this.hole.cupPos.x, this.hole.cupPos.y, 70)
-
-    // fairway/sand/water visualizations
-    for (const col of this.hole.colliders) {
-      // Treat 'rough' polygons as fairway areas (inner = fairway)
-      const color = col.type === 'rough' ? 0x66bb6a : col.type === 'sand' ? 0xe3d7a4 : 0x3fa7f2
-      g.fillStyle(color, 1)
+    // Draw polygons by layer order: water → sand → fairway → green → outlines
+    const drawPoly = (pts: Vec2[], fill: number, alpha = 1) => {
+      g.fillStyle(fill, alpha)
       g.beginPath()
-      const first = col.shape.points[0]
+      const first = pts[0]
       g.moveTo(first.x, first.y)
-      for (let i = 1; i < col.shape.points.length; i++) g.lineTo(col.shape.points[i].x, col.shape.points[i].y)
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y)
       g.closePath()
       g.fillPath()
+    }
+
+    // water
+    for (const c of this.hole.colliders) if (c.type === 'water') drawPoly(c.shape.points, 0x3fa7f2, 1)
+    // sand
+    for (const c of this.hole.colliders) if (c.type === 'sand') drawPoly(c.shape.points, 0xe3d7a4, 1)
+    // fairway (stored under 'rough')
+    for (const c of this.hole.colliders) if (c.type === 'rough') drawPoly(c.shape.points, 0x66bb6a, 1)
+    // green polygon (lighter green)
+    for (const c of this.hole.colliders) if (c.type === 'green') drawPoly(c.shape.points, 0xa5d6a7, 1)
+    // optional outlines (walls) with subtle darker tint (disabled by default)
+    const showRoughOutline = false
+    if (showRoughOutline) {
+      g.lineStyle(2, 0x2e7d32, 0.7)
+      for (const c of this.hole.colliders) if (c.type === 'wall') {
+        g.beginPath()
+        const pts = c.shape.points
+        g.moveTo(pts[0].x, pts[0].y)
+        for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y)
+        g.closePath()
+        g.strokePath()
+      }
     }
 
     // cup
@@ -359,10 +375,10 @@ export class GolfScene extends Phaser.Scene {
     if (inWater) return 'water'
     const inSand = this.hole.colliders.some((c) => c.type === 'sand' && polyContains(c.shape.points, p))
     if (inSand) return 'sand'
+    const inGreen = this.hole.colliders.some((c) => c.type === 'green' && polyContains(c.shape.points, p))
+    if (inGreen) return 'green'
     // Invert: inside 'rough' polygon is actually fairway; outside becomes rough
     const inFairwayZone = this.hole.colliders.some((c) => c.type === 'rough' && polyContains(c.shape.points, p))
-    const inGreen = Phaser.Math.Distance.Between(p.x, p.y, this.hole.cupPos.x, this.hole.cupPos.y) < 60
-    if (inGreen) return 'green'
     return inFairwayZone ? 'fairway' : 'rough'
   }
 
@@ -442,9 +458,7 @@ export class GolfScene extends Phaser.Scene {
     const inWater = this.hole.colliders.some((c) => c.type === 'water' && polyContains(c.shape.points, p))
     const inSand = this.hole.colliders.some((c) => c.type === 'sand' && polyContains(c.shape.points, p))
     const inFairwayZone = this.hole.colliders.some((c) => c.type === 'rough' && polyContains(c.shape.points, p))
-
-    // green defined as circle around cup
-    const inGreen = Phaser.Math.Distance.Between(p.x, p.y, this.hole.cupPos.x, this.hole.cupPos.y) < 60
+    const inGreen = this.hole.colliders.some((c) => c.type === 'green' && polyContains(c.shape.points, p))
     this.setPuttMode(inGreen)
 
     // Mark first entries
