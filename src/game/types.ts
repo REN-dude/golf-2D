@@ -2,7 +2,7 @@ export type Lie = 'tee' | 'fairway' | 'rough' | 'sand' | 'water' | 'green'
 
 export type Vec2 = { x: number; y: number }
 
-export type ColliderType = 'wall' | 'sand' | 'water' | 'rough'
+export type ColliderType = 'wall' | 'sand' | 'water' | 'rough' | 'green'
 
 export type Polygon = { points: Vec2[] }
 

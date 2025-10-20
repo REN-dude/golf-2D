@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/data/course.ts","./src/data/terms.ts","./src/game/golfscene.ts","./src/game/assets.d.ts","./src/game/types.ts","./src/ui/checklist.tsx","./src/ui/hud.tsx","./src/ui/poptip.tsx"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/data/course.ts","./src/data/terms.ts","./src/game/golfscene.ts","./src/game/assets.d.ts","./src/game/clubs.ts","./src/game/geometry.ts","./src/game/types.ts","./src/ui/checklist.tsx","./src/ui/hud.tsx","./src/ui/poptip.tsx"],"version":"5.9.3"}
