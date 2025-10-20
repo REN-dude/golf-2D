@@ -29,5 +29,5 @@ export type GameEvent =
   | { type: 'entered'; lie: Exclude<Lie, 'tee'> }
   | { type: 'puttMode'; on: boolean }
   | { type: 'penalty'; amount: number; reason: 'water' | 'ob' }
-  | { type: 'hole'; result: 'out' }
+  | { type: 'hole'; result: 'out'; strokes: number; par: number }
 

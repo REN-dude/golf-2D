@@ -24,6 +24,10 @@ export default function App() {
   const [puttMode, setPuttMode] = useState(false)
   const [tip, setTip] = useState<string | null>(null)
   const [check, setCheck] = useState<ChecklistState>(initialChecklist)
+  const [finishedHoles, setFinishedHoles] = useState(0)
+  const [totalStrokesSum, setTotalStrokesSum] = useState(0)
+  const [showResult, setShowResult] = useState(false)
+  const [totalParSum, setTotalParSum] = useState(0)
 
   const onEvent = useCallback((ev: GameEvent) => {
     if (ev.type === 'shot') {
@@ -50,12 +54,24 @@ export default function App() {
       const termId = ev.reason === 'water' ? 'water' : 'ob'
       const t = terms.find((t) => t.id === termId)
       if (t) setTip(`${t.label}: ${t.oneLiner} +${ev.amount}`)
+      // Reflect penalty in stroke count immediately
+      setStrokes((s) => s + ev.amount)
       if (ev.reason === 'ob') setCheck((c) => ({ ...c, ob: true }))
     }
     if (ev.type === 'hole') {
       setTip('カップイン！おめでとう！')
       // automatically advance in a moment
       setTimeout(() => nextHole(), 900)
+    }
+    // Accumulate totals and trigger result after 3 holes
+    if (ev.type === 'hole') {
+      setTotalStrokesSum((s) => s + ev.strokes)
+      setTotalParSum((p) => p + ev.par)
+      setFinishedHoles((n) => {
+        const next = n + 1
+        if (next >= 3) setShowResult(true)
+        return next
+      })
     }
   }, [])
 
@@ -78,7 +94,15 @@ export default function App() {
   }, [holeIndex, onEvent])
 
   const nextHole = useCallback(() => {
-    setHoleIndex((i) => (i + 1) % course.holes.length)
+    setHoleIndex((i) => (showResult ? i : (i + 1) % course.holes.length))
+  }, [showResult])
+
+  const restartRun = useCallback(() => {
+    setShowResult(false)
+    setFinishedHoles(0)
+    setTotalStrokesSum(0)
+    setTotalParSum(0)
+    setHoleIndex(0)
   }, [])
 
   useEffect(() => {
@@ -132,6 +156,19 @@ export default function App() {
         puttMode={puttMode}
         lastTip={tip}
       />
+      {showResult ? (
+        <div className="overlay">
+          <div className="overlay-inner">
+            <div className="overlay-title">リザルト</div>
+            <div className="overlay-total">合計ストローク: {totalStrokesSum}</div>
+            <div className="overlay-total">合計パー: {totalParSum}</div>
+            <div className="overlay-total">トータルスコア: {(totalStrokesSum - totalParSum) >= 0 ? `+${totalStrokesSum - totalParSum}` : `${totalStrokesSum - totalParSum}`}</div>
+            <div className="overlay-actions">
+              <button className="btn primary" onClick={restartRun}>最初から</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

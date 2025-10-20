@@ -38,6 +38,7 @@ export class GolfScene extends Phaser.Scene {
   clubText?: Phaser.GameObjects.Text
   clubButtons: Phaser.GameObjects.Text[] = []
   lastShotClub?: ClubSpec
+  holeComplete = false
   hasEntered: Record<Exclude<Lie, 'tee'>, boolean> = {
     fairway: false,
     rough: false,
@@ -63,10 +64,13 @@ export class GolfScene extends Phaser.Scene {
     this.holeIndex = data.holeIndex ?? 0
     this.hole = this.course.holes[this.holeIndex]
     this.onEvent = data.onEvent
+    // Reset strokes when starting a new hole
+    this.strokes = 0
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#1a3a27')
+    this.holeComplete = false
 
     // derive world size from scale (config width/height)
     this.worldW = this.scale.width as number
@@ -492,6 +496,7 @@ export class GolfScene extends Phaser.Scene {
       body.setVelocity(body.velocity.x * 0.8, body.velocity.y * 0.8)
     }
     // penalty + drop at last safe
+    this.strokes += 1
     this.emit({ type: 'penalty', amount: 1, reason: 'water' })
     this.resetBallTo(this.lastSafePos)
   }
@@ -505,6 +510,7 @@ export class GolfScene extends Phaser.Scene {
   private checkOB() {
     // OB if ball leaves world rectangle
     if (this.ball.x < 0 || this.ball.x > this.worldW || this.ball.y < 0 || this.ball.y > this.worldH) {
+      this.strokes += 1
       this.emit({ type: 'penalty', amount: 1, reason: 'ob' })
       this.resetBallTo(this.lastSafePos)
     }
@@ -513,9 +519,33 @@ export class GolfScene extends Phaser.Scene {
   private checkCup() {
     const body = this.ball.body as Phaser.Physics.Arcade.Body
     const d = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, this.hole.cupPos.x, this.hole.cupPos.y)
-    if (d < 9 && body.speed < 30) {
+    if (d < 9 && body.speed < 30 && !this.holeComplete) {
+      this.holeComplete = true
       this.resetBallTo(this.hole.cupPos)
-      this.emit({ type: 'hole', result: 'out' })
+      // Show score label (Birdie/Par/Bogey...) before notifying app to advance
+      const diff = this.strokes - this.hole.par
+      const label = ((): string => {
+        if (diff <= -3) return 'アルバトロス'
+        if (diff === -2) return 'イーグル'
+        if (diff === -1) return 'バーディ'
+        if (diff === 0) return 'パー'
+        if (diff === 1) return 'ボギー'
+        if (diff === 2) return 'ダブルボギー'
+        if (diff === 3) return 'トリプルボギー'
+        if (diff > 3) return `${diff}オーバー`
+        return `${-diff}アンダー`
+      })()
+      const txt = this.add.text(this.worldW / 2, this.worldH / 2, label, {
+        color: '#ffffff',
+        fontSize: '36px',
+        fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(2000)
+      txt.setShadow(2, 2, '#000000', 4, true, true)
+      //スコア表示時間
+      this.time.delayedCall(3000, () => {
+        txt.destroy()
+        this.emit({ type: 'hole', result: 'out', strokes: this.strokes, par: this.hole.par })
+      })
     }
   }
 

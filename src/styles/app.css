@@ -54,3 +54,13 @@
   pointer-events: none;
 }
 
+/* Result overlay */
+.overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; }
+.overlay-inner {
+  background: var(--hud-bg);
+  color: var(--hud-fg);
+  padding: 24px 28px; border-radius: 12px; min-width: 320px; text-align: center;
+}
+.overlay-title { font-size: 24px; margin-bottom: 8px; font-weight: bold; }
+.overlay-total { font-size: 20px; margin-bottom: 14px; }
+.overlay-actions { display: flex; justify-content: center; gap: 12px; }
