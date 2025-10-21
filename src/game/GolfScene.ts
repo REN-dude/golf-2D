@@ -47,6 +47,13 @@ export class GolfScene extends Phaser.Scene {
     green: false,
   }
 
+  // Distance-based carry/run tracking
+  shotActive = false
+  shotStartPos?: Vec2
+  lastBallPos?: Vec2
+  shotDistance = 0
+  carryCutoffDist = 0
+
   // Simple circular trees for obstacles
   trees: { x: number; y: number; r: number }[] = []
 
@@ -129,11 +136,13 @@ export class GolfScene extends Phaser.Scene {
     this.physics.add.existing(this.ball)
     const body = this.ball.body as Phaser.Physics.Arcade.Body
     body.setAllowGravity(false)
-    body.setDrag(15, 15)
+    // Disable Arcade linear drag; we simulate resistance ourselves
+    body.setDrag(0, 0)
     body.setBounce(0.2, 0.2)
     body.setCollideWorldBounds(false)
 
     this.lastSafePos = { ...this.hole.teePos }
+    this.lastBallPos = { ...this.hole.teePos }
 
     // Randomly place 3 trees (avoid tee, cup, and water)
     this.placeTrees()
@@ -216,6 +225,12 @@ export class GolfScene extends Phaser.Scene {
       const speed = this.getFixedShotSpeed(club)
       body.setVelocity(ux * speed, uy * speed)
       this.lastShotClub = club
+      // Initialize carry/run tracking for this shot
+      this.shotActive = true
+      this.shotStartPos = { x: this.ball.x, y: this.ball.y }
+      this.lastBallPos = { x: this.ball.x, y: this.ball.y }
+      this.shotDistance = 0
+      this.carryCutoffDist = this.computeCarryCutoffDistance(this.shotStartPos, { x: ux * speed, y: uy * speed }, club)
       this.isDragging = false
       this.dragStart = undefined
       // Clear aim preview
@@ -230,6 +245,24 @@ export class GolfScene extends Phaser.Scene {
     // Base fixed shot speed; scaled by club.maxPower
     const BASE = 360
     return BASE * (club.maxPower || 1)
+  }
+
+  private computeCarryCutoffDistance(start: Vec2, v0: Vec2, club: ClubSpec): number {
+    // Mirror preview logic to derive carry length from a one-time sim
+    const sim = this.simulateTrajectory(start, v0, club)
+    const pts = sim.points
+    let totalLen = 0
+    for (let i = 1; i < pts.length; i++) totalLen += Phaser.Math.Distance.Between(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y)
+    const startLie = this.determineLie(start)
+    const lieMod = LIE_MOD[startLie]
+    const carryMod = lieMod?.carry ?? 1
+    const runMod = lieMod?.run ?? 1
+    const spinReduce = 1 - 0.5 * Phaser.Math.Clamp(club.spin, 0, 1)
+    const carryCoeffEff = club.carryCoeff * carryMod
+    const runCoeffEff = club.runCoeff * runMod * spinReduce
+    const frac = (carryCoeffEff) / Math.max(0.0001, carryCoeffEff + runCoeffEff)
+    const carryTargetLen = totalLen * Phaser.Math.Clamp(frac, 0.05, 0.95)
+    return carryTargetLen
   }
 
   private setClub(key: ClubKey) {
@@ -372,19 +405,24 @@ export class GolfScene extends Phaser.Scene {
 
       // Air drag (derived from club params), then lie-based friction
       // Air drag reduces speed in flight regardless of lie
-      const air = Phaser.Math.Clamp(0.004 + 0.004 * (club.launchAngleDeg / 52) - 0.002 * club.spin, 0, 0.02)
+      const air = Phaser.Math.Clamp(0.004 + 0.004* (club.launchAngleDeg / 52) - 0.002 * club.spin, 0, 0.02)
       vx *= 1 - air
       vy *= 1 - air
       const lie = this.determineLie({ x: px, y: py })
-      let factor = 0.985 // fairway base
-      if (lie === 'rough') factor = 0.96
-      if (lie === 'sand') factor = 0.92
-      if (lie === 'green') factor = 0.98
-      // Apply spin influence: higher spin -> more decel (less roll)
-      const spin = Phaser.Math.Clamp(club.spin, 0, 1)
-      factor = factor - (1 - factor) * (0.5 * spin)
-      vx *= factor
-      vy *= factor
+      // Treat high-speed phase as carry (airborne-like): skip ground resistance until speed drops
+      const FLIGHT_SPEED = 40
+      const speedNow = Math.hypot(vx, vy)
+      if (speedNow <= FLIGHT_SPEED) {
+        let factor = 0.985 // fairway base
+        if (lie === 'rough') factor = 0.96
+        if (lie === 'sand') factor = 0.92
+        if (lie === 'green') factor = 0.98
+        // Apply spin influence: higher spin -> more decel (less roll)
+        const spin = Phaser.Math.Clamp(club.spin, 0, 1)
+        factor = factor - (1 - factor) * (0.5 * spin)
+        vx *= factor
+        vy *= factor
+      }
 
       // collect dotted path sparsely
       if (i % 6 === 0) points.push({ x: px, y: py })
@@ -510,6 +548,9 @@ export class GolfScene extends Phaser.Scene {
     // Update friction according to lie each frame
     // Allow crossing water: no immediate penalty here.
     // Penalize only if the ball stops while in water (handled in update()).
+    // Distance-based carry gating: skip ground resistance until past carry cutoff
+    const inCarry = this.shotActive && this.shotDistance < this.carryCutoffDist
+    if (inCarry) return
     if (inSand) this.applyLieFriction('sand')
     else if (inGreen) this.applyLieFriction('green')
     else if (inFairwayZone) this.applyLieFriction('fairway')
@@ -532,6 +573,9 @@ export class GolfScene extends Phaser.Scene {
     this.ball.setPosition(p.x, p.y)
     const body = this.ball.body as Phaser.Physics.Arcade.Body
     body.setVelocity(0, 0)
+    // Reset shot tracking on drop/reset
+    this.shotActive = false
+    this.shotDistance = 0
   }
 
   private checkOB() {
@@ -584,6 +628,13 @@ export class GolfScene extends Phaser.Scene {
     // If ball comes to rest in water, apply penalty and drop
     if (inWater && body.speed < 2) this.handleWater()
     if (body.speed < 12 && !inWater) this.lastSafePos = { x: this.ball.x, y: this.ball.y }
+
+    // Distance accumulation for carry gating
+    if (this.lastBallPos) {
+      this.shotDistance += Phaser.Math.Distance.Between(this.lastBallPos.x, this.lastBallPos.y, this.ball.x, this.ball.y)
+    }
+    this.lastBallPos = { x: this.ball.x, y: this.ball.y }
+    if (body.speed < 2) this.shotActive = false
 
     // Apply club-specific air drag continuously while moving (derived)
     if (this.lastShotClub && body.speed > 2) {

@@ -15,22 +15,27 @@ export type ClubSpec = {
 export const CLUB_ORDER: ClubKey[] = ['1w', '5i', '7i', '9i', '56w']
 
 //クラブのパラメータ
+//carryCoeff:キャリー比率（空中区間の割合）を決める係数。大きいほどキャリーが増える。
+//runCoeff:ラン比率（着地後の転がり）を決める係数。大きいほどランが増える。
+//maxPower:ショット初速の基準倍率。ドラッグ量は無視し、方向のみ反映、速度は「固定値 × maxPower」。
+//spin:ラン抑制（高いほど転がりが減る）と、空気抵抗計算にも影響。
+//launchAngleDeg:空気抵抗の算出に寄与（高いほど空気抵抗がやや増える）。2Dでの打ち上げ角の簡易パラメータ。
 export const CLUBS: Record<ClubKey, ClubSpec> = {
   '1w': {
     key: '1w',
     label: '1W',
-    carryCoeff: 1.10,
+    carryCoeff: 0.9,
     runCoeff: 1.40,
-    maxPower: 3,
+    maxPower: 1.5,
     spin: 0.2,
     launchAngleDeg: 12,
   },
   '5i': {
     key: '5i',
     label: '5I',
-    carryCoeff: 0.95,
+    carryCoeff: 0.7,
     runCoeff: 1.05,
-    maxPower: 2,
+    maxPower: 1.25,
     spin: 0.35,
     launchAngleDeg: 18,
   },
@@ -39,7 +44,7 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
     label: '7I',
     carryCoeff: 0.88,
     runCoeff: 0.90,
-    maxPower: 1.5,
+    maxPower: 1.15,
     spin: 0.45,
     launchAngleDeg: 22,
   },
@@ -48,7 +53,7 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
     label: '9I',
     carryCoeff: 0.78,
     runCoeff: 0.65,
-    maxPower: 1.2,
+    maxPower: 1,
     spin: 0.6,
     launchAngleDeg: 26,
   },
