@@ -24,26 +24,26 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
   '1w': {
     key: '1w',
     label: '1W',
-    carryCoeff: 0.9,
-    runCoeff: 1.40,
-    maxPower: 1.5,
-    spin: 0.2,
+    carryCoeff: 0.95,
+    runCoeff: 0.95,
+    maxPower: 1.6,
+    spin: 0.25,
     launchAngleDeg: 12,
   },
   '5i': {
     key: '5i',
     label: '5I',
-    carryCoeff: 0.7,
-    runCoeff: 1.05,
-    maxPower: 1.25,
+    carryCoeff: 0.85,
+    runCoeff: 0.85,
+    maxPower: 1.35,
     spin: 0.35,
     launchAngleDeg: 18,
   },
   '7i': {
     key: '7i',
     label: '7I',
-    carryCoeff: 0.88,
-    runCoeff: 0.90,
+    carryCoeff: 0.80,
+    runCoeff: 0.75,
     maxPower: 1.15,
     spin: 0.45,
     launchAngleDeg: 22,
@@ -51,8 +51,8 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
   '9i': {
     key: '9i',
     label: '9I',
-    carryCoeff: 0.78,
-    runCoeff: 0.65,
+    carryCoeff: 0.75,
+    runCoeff: 0.60,
     maxPower: 1,
     spin: 0.6,
     launchAngleDeg: 26,
@@ -60,10 +60,10 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
   '56w': {
     key: '56w',
     label: '56°',
-    carryCoeff: 0.62,
-    runCoeff: 0.25,
-    maxPower: 0.7,
-    spin: 0.85,
+    carryCoeff: 0.85,
+    runCoeff: 0.20,
+    maxPower: 0.75,
+    spin: 0.90,
     launchAngleDeg: 52,
   },
 }
@@ -71,10 +71,11 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
 // Lie-based modifiers to carry and run (simple 2D approximations)
 export const LIE_MOD = {
   // Treat tee like fairway for modifiers
-  fairway: { carry: 1.0, run: 1.0 },
+  fairway: { carry: 0.95, run: 1.0 },
   rough: { carry: 0.92, run: 0.7 },
   sand: { carry: 0.85, run: 0.4 }, // bunker
   green: { carry: 0.95, run: 0.5 },
   water: { carry: 0.8, run: 0.2 },
 } as const
+
 
