@@ -93,10 +93,10 @@ export class GolfScene extends Phaser.Scene {
 
     // water
     for (const c of this.hole.colliders) if (c.type === 'water') drawPoly(c.shape.points, 0x3fa7f2, 1)
-    // sand
-    for (const c of this.hole.colliders) if (c.type === 'sand') drawPoly(c.shape.points, 0xe3d7a4, 1)
     // fairway (stored under 'rough')
     for (const c of this.hole.colliders) if (c.type === 'rough') drawPoly(c.shape.points, 0x66bb6a, 1)
+    // sand (bunkers) on top of fairway
+    for (const c of this.hole.colliders) if (c.type === 'sand') drawPoly(c.shape.points, 0xe3d7a4, 1)
     // green polygon (lighter green)
     for (const c of this.hole.colliders) if (c.type === 'green') drawPoly(c.shape.points, 0xa5d6a7, 1)
     // optional outlines (walls) with subtle darker tint (disabled by default)
