@@ -14,6 +14,7 @@ export type ClubSpec = {
 
 export const CLUB_ORDER: ClubKey[] = ['1w', '5i', '7i', '9i', '56w']
 
+//クラブのパラメータ
 export const CLUBS: Record<ClubKey, ClubSpec> = {
   '1w': {
     key: '1w',
