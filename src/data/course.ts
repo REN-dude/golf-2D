@@ -4,6 +4,10 @@ import { buildVariableWidthBand, ellipsePolygon, jitterPolygon, offsetPolygon, s
 const WORLD_W = 1280
 const WORLD_H = 720
 
+// Global scale for bunker (sand) size. Increase to enlarge all bunkers.
+// e.g., 1.2 = +20%, 0.8 = -20%
+const BUNKER_SCALE = 1.0
+
 // Global scale for fairway width (1.0 = current width)
 //フェアウェイの広さを変えられる
 const FAIRWAY_SCALE =1.5
@@ -88,7 +92,8 @@ const hole1: Hole = (() => {
       // Rough outline kept as 'wall' (not used for lie; can be used for visuals)
       { type: 'wall', shape: { points: roughOutline } },
       { type: 'green', shape: { points: greenPoly } },
-      { type: 'sand', shape: { points: blob(WORLD_W * 0.55, WORLD_H * 0.65, 90, { seed: 102, variation: 0.28, segments: 36, smoothPasses: 2 }) } },
+      //バンカー、池のサイズ変更
+      { type: 'sand', shape: { points: blob(WORLD_W * 0.55, WORLD_H * 0.65, 90 * BUNKER_SCALE, { seed: 102, variation: 0.28, segments: 36, smoothPasses: 2 }) } },
       { type: 'water', shape: { points: blob(WORLD_W * 0.35, WORLD_H * 0.33, 110, { seed: 103, variation: 0.32, segments: 40, smoothPasses: 3, aspectX: 1.3, aspectY: 0.8 }) } },
     ],
   }
@@ -116,7 +121,8 @@ const hole2: Hole = (() => {
       { type: 'rough', shape: { points: fairway } },
       { type: 'wall', shape: { points: roughOutline } },
       { type: 'green', shape: { points: greenPoly } },
-      { type: 'sand', shape: { points: blob(WORLD_W * 0.62, WORLD_H * 0.45, 120, { seed: 202, variation: 0.25, segments: 38, smoothPasses: 2 }) } },
+      //バンカー、池のサイズ変更
+      { type: 'sand', shape: { points: blob(WORLD_W * 0.62, WORLD_H * 0.45, 120 * BUNKER_SCALE, { seed: 202, variation: 0.25, segments: 38, smoothPasses: 2 }) } },
       { type: 'water', shape: { points: blob(WORLD_W * 0.28, WORLD_H * 0.58, 130, { seed: 203, variation: 0.35, segments: 42, smoothPasses: 3, aspectX: 0.9, aspectY: 1.2 }) } },
     ],
   }
@@ -144,7 +150,8 @@ const hole3: Hole = (() => {
       { type: 'rough', shape: { points: fairway } },
       { type: 'wall', shape: { points: roughOutline } },
       { type: 'green', shape: { points: greenPoly } },
-      { type: 'sand', shape: { points: blob(WORLD_W * 0.48, WORLD_H * 0.22, 100, { seed: 302, variation: 0.27, segments: 36, smoothPasses: 2 }) } },
+      //バンカー、池のサイズ変更
+      { type: 'sand', shape: { points: blob(WORLD_W * 0.48, WORLD_H * 0.22, 100 * BUNKER_SCALE, { seed: 302, variation: 0.27, segments: 36, smoothPasses: 2 }) } },
       { type: 'water', shape: { points: blob(WORLD_W * 0.42, WORLD_H * 0.75, 150, { seed: 303, variation: 0.33, segments: 44, smoothPasses: 3, aspectX: 1.1, aspectY: 0.9 }) } },
     ],
   }
