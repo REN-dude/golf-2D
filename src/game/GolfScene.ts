@@ -34,6 +34,8 @@ export class GolfScene extends Phaser.Scene {
   isDragging = false
   dragStart?: Vec2
   puttMode = false
+  // Whether the dedicated putting overlay scene is active
+  private puttOverlayActive = false
   currentClubKey: ClubKey = '7i'
   clubText?: Phaser.GameObjects.Text
   clubButtons: Phaser.GameObjects.Text[] = []
@@ -594,6 +596,57 @@ export class GolfScene extends Phaser.Scene {
     this.checkZones()
     this.checkOB()
     this.checkCup()
+
+    // If ball is resting on the green and hole not complete, switch to putter screen
+    if (!this.holeComplete && !this.puttOverlayActive) {
+      const speed = body.speed
+      const pos = { x: this.ball.x, y: this.ball.y }
+      const onGreen = this.determineLie(pos) === 'green'
+      if (onGreen && speed < 2) {
+        this.startPuttOverlay()
+      }
+    }
+  }
+
+  private startPuttOverlay() {
+    if (this.puttOverlayActive) return
+    this.puttOverlayActive = true
+    // Ensure ball is fully stopped before pausing
+    const body = this.ball.body as Phaser.Physics.Arcade.Body
+    body.setVelocity(0, 0)
+    const startWorld = { x: this.ball.x, y: this.ball.y }
+    const cupWorld = { ...this.hole.cupPos }
+    this.scene.pause()
+    this.scene.launch('PuttScene', {
+      startWorld,
+      cupWorld,
+      onStroke: (delta: number) => {
+        if (delta && delta > 0) {
+          this.strokes += delta
+          this.emit({ type: 'shot', strokes: this.strokes })
+        }
+      },
+      onDone: (res: { holed: boolean; newWorldPos?: { x: number; y: number }; strokesDelta: number }) => {
+        // Resume play
+        this.scene.resume()
+        this.puttOverlayActive = false
+        // Apply stroke(s)
+        if (res.strokesDelta > 0) {
+          this.strokes += res.strokesDelta
+          this.emit({ type: 'shot', strokes: this.strokes })
+        }
+        if (res.holed) {
+          // Snap to cup and trigger hole completion flow
+          this.resetBallTo(this.hole.cupPos)
+          this.checkCup()
+          return
+        }
+        if (res.newWorldPos) {
+          this.resetBallTo(res.newWorldPos)
+          this.lastSafePos = { ...res.newWorldPos }
+        }
+      },
+    })
   }
 }
 

@@ -5,6 +5,7 @@ import { terms } from './data/terms'
 import HUD from './ui/HUD'
 import './styles/app.css'
 import GolfScene from './game/GolfScene'
+import PuttScene from './game/PuttScene'
 import type { GameEvent } from './game/types'
 
 type ChecklistState = {
@@ -113,7 +114,7 @@ export default function App() {
       height: 720,
       parent: hostRef.current,
       physics: { default: 'arcade', arcade: { gravity: { x: 0, y: 0 }, debug: false } },
-      scene: [GolfScene],
+      scene: [GolfScene, PuttScene],
       backgroundColor: '#1a3a27',
     }
     const game = new Phaser.Game(config)
