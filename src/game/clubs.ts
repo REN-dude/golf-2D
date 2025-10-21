@@ -24,7 +24,7 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
   '1w': {
     key: '1w',
     label: '1W',
-    carryCoeff: 0.95,
+    carryCoeff: 0.5,
     runCoeff: 0.95,
     maxPower: 1.6,
     spin: 0.25,
@@ -33,7 +33,7 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
   '5i': {
     key: '5i',
     label: '5I',
-    carryCoeff: 0.85,
+    carryCoeff: 0.4,
     runCoeff: 0.85,
     maxPower: 1.35,
     spin: 0.35,
@@ -42,7 +42,7 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
   '7i': {
     key: '7i',
     label: '7I',
-    carryCoeff: 0.80,
+    carryCoeff: 0.3,
     runCoeff: 0.75,
     maxPower: 1.15,
     spin: 0.45,
@@ -51,7 +51,7 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
   '9i': {
     key: '9i',
     label: '9I',
-    carryCoeff: 0.75,
+    carryCoeff: 0.2,
     runCoeff: 0.60,
     maxPower: 1,
     spin: 0.6,
@@ -60,7 +60,7 @@ export const CLUBS: Record<ClubKey, ClubSpec> = {
   '56w': {
     key: '56w',
     label: '56°',
-    carryCoeff: 0.85,
+    carryCoeff: 0.1,
     runCoeff: 0.20,
     maxPower: 0.75,
     spin: 0.90,

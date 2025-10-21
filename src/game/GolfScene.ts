@@ -243,14 +243,15 @@ export class GolfScene extends Phaser.Scene {
 
   private getFixedShotSpeed(club: ClubSpec): number {
     // Base fixed shot speed; scaled by club.maxPower
-    const BASE = 360
+    //初速の設定
+    const BASE = 280
     return BASE * (club.maxPower || 1)
   }
 
   private computeCarryCutoffDistance(start: Vec2, v0: Vec2, club: ClubSpec): number {
-    // Mirror preview logic to derive carry length from a one-time sim
-    const sim = this.simulateTrajectory(start, v0, club)
-    const pts = sim.points
+    // Mirror preview logic to derive carry length from a one-time idealized sim (no hazards/ground friction)
+    const simIdeal = this.simulateTrajectory(start, v0, club, { ideal: true })
+    const pts = simIdeal.points
     let totalLen = 0
     for (let i = 1; i < pts.length; i++) totalLen += Phaser.Math.Distance.Between(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y)
     const startLie = this.determineLie(start)
@@ -290,12 +291,12 @@ export class GolfScene extends Phaser.Scene {
       this.landingMarker.setVisible(false)
       return
     }
-    // Sim total, then show only carry portion based on club + lie modifiers and spin.
-    const sim = this.simulateTrajectory(start, v0, club)
-    const pts = sim.points
+    // Simulate full for path/outcome, and idealized (hazard/ground friction ignored) for carry length
+    const simFull = this.simulateTrajectory(start, v0, club)
+    const simIdeal = this.simulateTrajectory(start, v0, club, { ideal: true })
     // total path length
     let totalLen = 0
-    for (let i = 1; i < pts.length; i++) totalLen += Phaser.Math.Distance.Between(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y)
+    for (let i = 1; i < simIdeal.points.length; i++) totalLen += Phaser.Math.Distance.Between(simIdeal.points[i - 1].x, simIdeal.points[i - 1].y, simIdeal.points[i].x, simIdeal.points[i].y)
 
     // Determine lie at start for modifiers
     const startLie = this.determineLie(start)
@@ -311,18 +312,19 @@ export class GolfScene extends Phaser.Scene {
     // Clip points to carry length only
     const carryPts: Vec2[] = []
     let acc = 0
-    for (let i = 0; i < pts.length; i++) {
-      if (i === 0) { carryPts.push(pts[i]); continue }
-      const d = Phaser.Math.Distance.Between(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y)
+    const ptsFull = simFull.points
+    for (let i = 0; i < ptsFull.length; i++) {
+      if (i === 0) { carryPts.push(ptsFull[i]); continue }
+      const d = Phaser.Math.Distance.Between(ptsFull[i - 1].x, ptsFull[i - 1].y, ptsFull[i].x, ptsFull[i].y)
       if (acc + d >= carryTargetLen) {
         // interpolate last point to land exactly on carry length
         const t = (carryTargetLen - acc) / d
-        const x = Phaser.Math.Linear(pts[i - 1].x, pts[i].x, t)
-        const y = Phaser.Math.Linear(pts[i - 1].y, pts[i].y, t)
+        const x = Phaser.Math.Linear(ptsFull[i - 1].x, ptsFull[i].x, t)
+        const y = Phaser.Math.Linear(ptsFull[i - 1].y, ptsFull[i].y, t)
         carryPts.push({ x, y })
         break
       } else {
-        carryPts.push(pts[i])
+        carryPts.push(ptsFull[i])
         acc += d
       }
     }
@@ -333,12 +335,12 @@ export class GolfScene extends Phaser.Scene {
       this.landingMarker.setPosition(last.x, last.y)
       // Color by outcome of carry landing area
       const color =
-        sim.outcome === 'ob' ? 0xf64f59 :
-        sim.outcome === 'water' ? 0x3fa7f2 :
-        sim.outcome === 'sand' ? 0xf6c859 :
-        sim.outcome === 'rough' ? 0x78d381 :
-        sim.outcome === 'green' ? 0x66bb6a :
-        sim.outcome === 'cup' ? 0x00ff99 : 0xffffff
+        simFull.outcome === 'ob' ? 0xf64f59 :
+        simFull.outcome === 'water' ? 0x3fa7f2 :
+        simFull.outcome === 'sand' ? 0xf6c859 :
+        simFull.outcome === 'rough' ? 0x78d381 :
+        simFull.outcome === 'green' ? 0x66bb6a :
+        simFull.outcome === 'cup' ? 0x00ff99 : 0xffffff
       this.landingMarker.setFillStyle(0xffffff, 0.9)
       this.landingMarker.setStrokeStyle(2, color, 1)
       this.landingMarker.setVisible(true)
@@ -347,7 +349,7 @@ export class GolfScene extends Phaser.Scene {
     }
   }
 
-  private simulateTrajectory(start: Vec2, v0: Vec2, club: ClubSpec): { points: Vec2[]; outcome: 'fairway' | 'rough' | 'sand' | 'water' | 'green' | 'ob' | 'cup' } {
+  private simulateTrajectory(start: Vec2, v0: Vec2, club: ClubSpec, opts?: { ideal?: boolean }): { points: Vec2[]; outcome: 'fairway' | 'rough' | 'sand' | 'water' | 'green' | 'ob' | 'cup' } {
     const points: Vec2[] = []
     let px = start.x
     let py = start.y
@@ -366,9 +368,11 @@ export class GolfScene extends Phaser.Scene {
       px += vx * dt
       py += vy * dt
 
-      // OB detection
-      if (px < 0 || px > this.worldW || py < 0 || py > this.worldH) {
-        return { points, outcome: 'ob' }
+      // OB detection (skip in idealized mode)
+      if (!opts?.ideal) {
+        if (px < 0 || px > this.worldW || py < 0 || py > this.worldH) {
+          return { points, outcome: 'ob' }
+        }
       }
 
       // cup detection (use current speed before friction)
@@ -379,27 +383,29 @@ export class GolfScene extends Phaser.Scene {
         return { points, outcome: 'cup' }
       }
 
-      // tree collisions (approximate same as update)
-      for (const t of this.trees) {
-        const d = Phaser.Math.Distance.Between(px, py, t.x, t.y)
-        const minD = t.r + 5
-        if (d < minD) {
-          const nx = (px - t.x) / (d || 1)
-          const ny = (py - t.y) / (d || 1)
-          const push = minD - d + 0.5
-          px = t.x + nx * (d + push)
-          py = t.y + ny * (d + push)
-          const vlen = Math.hypot(vx, vy)
-          if (vlen > 40) {
-            vx *= 0.4
-            vy *= 0.4
-          } else {
-            // stop on low-speed hit
-            points.push({ x: px, y: py })
-            const lie = this.determineLie({ x: px, y: py })
-            return { points, outcome: lie }
+      // tree collisions (skip in idealized mode)
+      if (!opts?.ideal) {
+        for (const t of this.trees) {
+          const d = Phaser.Math.Distance.Between(px, py, t.x, t.y)
+          const minD = t.r + 5
+          if (d < minD) {
+            const nx = (px - t.x) / (d || 1)
+            const ny = (py - t.y) / (d || 1)
+            const push = minD - d + 0.5
+            px = t.x + nx * (d + push)
+            py = t.y + ny * (d + push)
+            const vlen = Math.hypot(vx, vy)
+            if (vlen > 40) {
+              vx *= 0.4
+              vy *= 0.4
+            } else {
+              // stop on low-speed hit
+              points.push({ x: px, y: py })
+              const lie = this.determineLie({ x: px, y: py })
+              return { points, outcome: lie }
+            }
+            break
           }
-          break
         }
       }
 
@@ -408,20 +414,23 @@ export class GolfScene extends Phaser.Scene {
       const air = Phaser.Math.Clamp(0.004 + 0.004* (club.launchAngleDeg / 52) - 0.002 * club.spin, 0, 0.02)
       vx *= 1 - air
       vy *= 1 - air
-      const lie = this.determineLie({ x: px, y: py })
-      // Treat high-speed phase as carry (airborne-like): skip ground resistance until speed drops
-      const FLIGHT_SPEED = 40
-      const speedNow = Math.hypot(vx, vy)
-      if (speedNow <= FLIGHT_SPEED) {
-        let factor = 0.985 // fairway base
-        if (lie === 'rough') factor = 0.96
-        if (lie === 'sand') factor = 0.92
-        if (lie === 'green') factor = 0.98
-        // Apply spin influence: higher spin -> more decel (less roll)
-        const spin = Phaser.Math.Clamp(club.spin, 0, 1)
-        factor = factor - (1 - factor) * (0.5 * spin)
-        vx *= factor
-        vy *= factor
+      // Ground resistance (skip entirely in idealized mode; only air drag applies)
+      if (!opts?.ideal) {
+        const lie = this.determineLie({ x: px, y: py })
+        // Treat high-speed phase as carry (airborne-like): skip ground resistance until speed drops
+        const FLIGHT_SPEED = 40
+        const speedNow = Math.hypot(vx, vy)
+        if (speedNow <= FLIGHT_SPEED) {
+          let factor = 0.985 // fairway base
+          if (lie === 'rough') factor = 0.96
+          if (lie === 'sand') factor = 0.92
+          if (lie === 'green') factor = 0.98
+          // Apply spin influence: higher spin -> more decel (less roll)
+          const spin = Phaser.Math.Clamp(club.spin, 0, 1)
+          factor = factor - (1 - factor) * (0.5 * spin)
+          vx *= factor
+          vy *= factor
+        }
       }
 
       // collect dotted path sparsely
