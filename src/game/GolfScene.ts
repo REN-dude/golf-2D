@@ -184,23 +184,37 @@ export class GolfScene extends Phaser.Scene {
     })
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (!this.isDragging || !this.dragStart) return
-      // Predict with same mapping as shot: velocity = 3x drag vector
+      // Hide preview if current lie is sand or rough
+      const lieNow = this.determineLie({ x: this.ball.x, y: this.ball.y })
+      if (lieNow === 'sand' || lieNow === 'rough') {
+        this.aimGraphics.clear()
+        this.landingMarker.setVisible(false)
+        return
+      }
+      // Fixed-distance preview: direction from drag, speed from club
       const dx = this.dragStart.x - p.x
       const dy = this.dragStart.y - p.y
       const club = CLUBS[this.currentClubKey]
-      const scale = 3 * club.maxPower
-      this.updateAimPreview({ x: this.ball.x, y: this.ball.y }, { x: dx * scale, y: dy * scale }, club)
+      const len = Math.hypot(dx, dy) || 1
+      const ux = dx / len
+      const uy = dy / len
+      const speed = this.getFixedShotSpeed(club)
+      this.updateAimPreview({ x: this.ball.x, y: this.ball.y }, { x: ux * speed, y: uy * speed }, club)
     })
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
       if (!this.isDragging || !this.dragStart) return
       const end = { x: p.x, y: p.y }
       const dx = this.dragStart.x - end.x
       const dy = this.dragStart.y - end.y
+      const len = Math.hypot(dx, dy)
+      if (!len || len < 4) { this.isDragging = false; this.dragStart = undefined; return }
+      const ux = dx / len
+      const uy = dy / len
       const body = this.ball.body as Phaser.Physics.Arcade.Body
-      // Set velocity scaled by selected club
+      // Fixed-distance shot: per-club speed, drag only sets direction
       const club = CLUBS[this.currentClubKey]
-      const scale = 3 * club.maxPower
-      body.setVelocity(dx * scale, dy * scale)
+      const speed = this.getFixedShotSpeed(club)
+      body.setVelocity(ux * speed, uy * speed)
       this.lastShotClub = club
       this.isDragging = false
       this.dragStart = undefined
@@ -210,6 +224,12 @@ export class GolfScene extends Phaser.Scene {
       this.strokes += 1
       this.emit({ type: 'shot', strokes: this.strokes })
     })
+  }
+
+  private getFixedShotSpeed(club: ClubSpec): number {
+    // Base fixed shot speed; scaled by club.maxPower
+    const BASE = 360
+    return BASE * (club.maxPower || 1)
   }
 
   private setClub(key: ClubKey) {
@@ -230,6 +250,13 @@ export class GolfScene extends Phaser.Scene {
 
   // Simulate trajectory with lie-based friction, tree collisions, OB/cup detection
   private updateAimPreview(start: Vec2, v0: Vec2, club: ClubSpec) {
+    // Do not show preview if ball starts from sand or rough
+    const startLieNow = this.determineLie(start)
+    if (startLieNow === 'sand' || startLieNow === 'rough') {
+      this.aimGraphics.clear()
+      this.landingMarker.setVisible(false)
+      return
+    }
     // Sim total, then show only carry portion based on club + lie modifiers and spin.
     const sim = this.simulateTrajectory(start, v0, club)
     const pts = sim.points
